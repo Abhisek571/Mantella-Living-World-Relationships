@@ -1,0 +1,22 @@
+FormKey: 000803:Mantella - Relationship Bridge.esp
+EditorID: MRB_QuestRomantasy
+VirtualMachineAdapter:
+  Scripts:
+  - Name: MRB_Romantasy
+    Properties:
+    - MutagenObjectType: ScriptObjectProperty
+      Name: MRB_MinTalkSeconds
+      Object: 000801:Mantella - Relationship Bridge.esp
+    - MutagenObjectType: ScriptObjectProperty
+      Name: MRB_PointsPerTalk
+      Object: 000800:Mantella - Relationship Bridge.esp
+    - MutagenObjectType: ScriptObjectProperty
+      Name: PlayerRef
+      Object: 000014:Skyrim.esm
+  FileName: ''
+Name:
+  TargetLanguage: English
+  Value: Mantella Relationship Bridge - Romantasy
+Flags:
+- StartGameEnabled
+NextAliasID: 0

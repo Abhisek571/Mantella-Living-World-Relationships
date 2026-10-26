@@ -1,0 +1,15 @@
+SpriggitSource:
+  PackageName: Spriggit.Yaml.Skyrim
+  Version: 0.40
+ModKey: Mantella - Relationship Bridge.esp
+GameRelease: SkyrimSE
+ModHeader:
+  Flags:
+  - Small
+  Author: itsPigeon2000
+  Description: Tells Mantella the M.A.R.A.S marriage status and Romantasy bond of each NPC, and awards Romantasy points for Mantella conversations.
+  MasterReferences:
+  - Master: Skyrim.esm
+    FileSize: 0
+  - Master: Update.esm
+    FileSize: 0
