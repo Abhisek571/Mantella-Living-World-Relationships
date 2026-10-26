@@ -1,0 +1,16 @@
+{
+    "identifier": "mantella_maras_spouses",
+    "name": "LearnPlayerSpouses",
+    "description": "Tell the NPC(s) who the player is married and engaged to, from M.A.R.A.S.",
+    "note": "Needs M.A.R.A.S and Mantella - Relationship Bridge. Only used when the player brings up their marriages.",
+    "key": "Spouses",
+    "enabled": true,
+    "prompt": "If the player tells you about their marriages, their other spouses or who they are engaged to, begin your response with '{key}:'",
+    "allowed_games": ["skyrim"],
+    "requires_response": true,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}

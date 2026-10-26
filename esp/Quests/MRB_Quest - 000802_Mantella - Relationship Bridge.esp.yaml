@@ -1,0 +1,16 @@
+FormKey: 000802:Mantella - Relationship Bridge.esp
+EditorID: MRB_Quest
+VirtualMachineAdapter:
+  Scripts:
+  - Name: MRB_MARAS
+    Properties:
+    - MutagenObjectType: ScriptObjectProperty
+      Name: PlayerRef
+      Object: 000014:Skyrim.esm
+  FileName: ''
+Name:
+  TargetLanguage: English
+  Value: Mantella Relationship Bridge - MARAS
+Flags:
+- StartGameEnabled
+NextAliasID: 0

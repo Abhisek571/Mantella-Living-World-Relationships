@@ -1,0 +1,19 @@
+FormKey: 000804:Mantella - Relationship Bridge.esp
+EditorID: MRB_QuestLedger
+VirtualMachineAdapter:
+  Scripts:
+  - Name: MRB_Ledger
+    Properties:
+    - MutagenObjectType: ScriptObjectProperty
+      Name: MRB_AfterSceneTalk
+      Object: 000805:Mantella - Relationship Bridge.esp
+    - MutagenObjectType: ScriptObjectProperty
+      Name: PlayerRef
+      Object: 000014:Skyrim.esm
+  FileName: ''
+Name:
+  TargetLanguage: English
+  Value: Mantella Relationship Bridge - Lover's Ledger
+Flags:
+- StartGameEnabled
+NextAliasID: 0
