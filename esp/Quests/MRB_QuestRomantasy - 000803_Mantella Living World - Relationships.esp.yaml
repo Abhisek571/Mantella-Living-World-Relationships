@@ -1,4 +1,4 @@
-FormKey: 000803:Mantella - Relationship Bridge.esp
+FormKey: 000803:Mantella Living World - Relationships.esp
 EditorID: MRB_QuestRomantasy
 VirtualMachineAdapter:
   Scripts:
@@ -6,10 +6,10 @@ VirtualMachineAdapter:
     Properties:
     - MutagenObjectType: ScriptObjectProperty
       Name: MRB_MinTalkSeconds
-      Object: 000801:Mantella - Relationship Bridge.esp
+      Object: 000801:Mantella Living World - Relationships.esp
     - MutagenObjectType: ScriptObjectProperty
       Name: MRB_PointsPerTalk
-      Object: 000800:Mantella - Relationship Bridge.esp
+      Object: 000800:Mantella Living World - Relationships.esp
     - MutagenObjectType: ScriptObjectProperty
       Name: PlayerRef
       Object: 000014:Skyrim.esm
