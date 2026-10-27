@@ -3,7 +3,7 @@ Scriptname MRB_MARAS extends Quest
 player (candidate, engaged, married, divorced or jilted). When the player
 talks about their marriages, the "Learn the Player's Spouses" action tells the
 NPCs who the player is married and engaged to. Kept in its own script so the
-Romantasy half still works without M.A.R.A.S installed.}
+Lover's Ledger half still works without M.A.R.A.S installed.}
 
 Actor Property PlayerRef Auto
 
