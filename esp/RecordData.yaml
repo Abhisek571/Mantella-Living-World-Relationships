@@ -7,7 +7,7 @@ ModHeader:
   Flags:
   - Small
   Author: itsPigeon2000
-  Description: Mantella Living World - Relationships. Marriage (M.A.R.A.S), romance bond (Romantasy) and shared history (Lover's Ledger) for Mantella.
+  Description: Mantella Living World - Relationships. Marriage (M.A.R.A.S) and shared history (Lover's Ledger) for Mantella.
   MasterReferences:
   - Master: Skyrim.esm
     FileSize: 0
