@@ -13,3 +13,5 @@ Tells Mantella about marriage (MARAS) and shared history (Lover's Ledger). Each 
 | Mantella | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/98631) |
 | M.A.R.A.S (optional) | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/159033) |
 | Lover's Ledger (optional) | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/158983) |
+| Papyrus MessageBox - SKSE NG | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/83578) |
+| Relations Finder (optional) | [Nexus](https://www.nexusmods.com/skyrimspecialedition/mods/158980) |

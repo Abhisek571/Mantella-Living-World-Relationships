@@ -1,0 +1,19 @@
+{
+    "identifier": "mantella_maras_divorce",
+    "name": "Divorce",
+    "description": "Divorce the player. Only when you clearly end your marriage to the player now; not for doubts, past divorces or someone else's marriage.",
+    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "key": "Divorce",
+    "enabled": true,
+    "lw_gate": "maras=3",
+    "prompt": "If you clearly end your marriage to the player, begin your response with '{key}:'",
+    "allowed_games": [
+        "skyrim"
+    ],
+    "requires_response": true,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}

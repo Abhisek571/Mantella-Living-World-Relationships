@@ -1,0 +1,28 @@
+{
+    "identifier": "mantella_maras_resolve_crisis",
+    "name": "ResolveMarriageCrisis",
+    "description": "Settle the marriage crisis with the player. 'reconcile' only if the player showed real remorse and you clearly agree to stay together; 'divorce' only if you clearly say the marriage is over; otherwise 'undecided'.",
+    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "key": "ResolveMarriageCrisis",
+    "enabled": true,
+    "lw_gate": "maras=4",
+    "parameters": {
+        "decision": {
+            "type": "string",
+            "description": "One word: reconcile, divorce or undecided."
+        }
+    },
+    "required": [
+        "decision"
+    ],
+    "prompt": "When your latest words decide the marriage crisis, begin your response with '{key}:'",
+    "allowed_games": [
+        "skyrim"
+    ],
+    "requires_response": true,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}

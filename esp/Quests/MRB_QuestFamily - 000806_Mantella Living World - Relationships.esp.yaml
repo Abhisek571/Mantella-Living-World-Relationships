@@ -1,0 +1,16 @@
+FormKey: 000806:Mantella Living World - Relationships.esp
+EditorID: MRB_QuestFamily
+VirtualMachineAdapter:
+  Scripts:
+  - Name: MRB_Family
+    Properties:
+    - MutagenObjectType: ScriptObjectProperty
+      Name: PlayerRef
+      Object: 000014:Skyrim.esm
+  FileName: ''
+Name:
+  TargetLanguage: English
+  Value: Mantella Living World - Relationships - Family
+Flags:
+- StartGameEnabled
+NextAliasID: 0
