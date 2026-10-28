@@ -6,3 +6,7 @@ Function AddExtraRequestAction(string extraAction)
 EndFunction
 function RequestContinueConversation(bool updateInGameEvents = false)
 endFunction
+int Function CountActorsInConversation()
+EndFunction
+Actor Function GetActorInConversationByIndex(int indexOfActor)
+EndFunction

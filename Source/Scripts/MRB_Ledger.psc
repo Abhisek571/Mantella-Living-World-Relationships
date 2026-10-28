@@ -41,7 +41,7 @@ EndEvent
 Event OnNpcAdded(Form akActor)
 	inConversation = true
 	Actor npc = akActor as Actor
-	If !npc || npc == PlayerRef
+	If !npc || npc == PlayerRef || SKSE.GetPluginVersion("LoversLedger") < 0  ; Lover's Ledger not installed
 		Return
 	EndIf
 	string line = HistoryLine(npc)
@@ -152,7 +152,7 @@ Event OnLedgerThreadData(int aiThreadID)
 		i += 1
 	EndWhile
 	AddMantellaEvent(partners + " and the player just finished having sex.")
-	If !inConversation && MRB_AfterSceneTalk.GetValueInt() == 1
+	If !TalkRunning() && MRB_AfterSceneTalk.GetValueInt() == 1
 		StartTalk(first)
 	EndIf
 EndEvent
@@ -221,4 +221,10 @@ Function AddMantellaEvent(string asText)
 		ModEvent.PushString(handle, asText)
 		ModEvent.Send(handle)
 	EndIf
+EndFunction
+
+; Mantella's conversation quest runs only during a talk (the Ended event, and so inConversation, can be missed).
+bool Function TalkRunning()
+	Quest talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as Quest
+	Return talk && talk.IsRunning()
 EndFunction

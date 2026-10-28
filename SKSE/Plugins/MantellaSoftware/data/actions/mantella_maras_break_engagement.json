@@ -1,0 +1,19 @@
+{
+    "identifier": "mantella_maras_break_engagement",
+    "name": "BreakEngagement",
+    "description": "Call off your engagement to the player. Only when you clearly end it now; not for past breakups, doubts or someone else's engagement.",
+    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "key": "BreakEngagement",
+    "enabled": true,
+    "lw_gate": "maras=2",
+    "prompt": "If you clearly call off your engagement to the player, begin your response with '{key}:'",
+    "allowed_games": [
+        "skyrim"
+    ],
+    "requires_response": true,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}

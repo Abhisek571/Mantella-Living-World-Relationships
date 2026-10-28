@@ -1,0 +1,19 @@
+{
+    "identifier": "mantella_maras_accept_proposal",
+    "name": "AcceptProposal",
+    "description": "Accept the player's marriage proposal. Only when the player has clearly asked you to marry them and you clearly say yes; never for flirting or talk about marriage.",
+    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "key": "AcceptProposal",
+    "enabled": true,
+    "lw_gate": "maras=1",
+    "prompt": "If the player has asked you to marry them and you clearly say yes, begin your response with '{key}:'",
+    "allowed_games": [
+        "skyrim"
+    ],
+    "requires_response": true,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}
