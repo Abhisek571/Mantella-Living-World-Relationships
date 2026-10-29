@@ -287,10 +287,19 @@ int Function GateValue(Actor akNpc)
 	Return 0
 EndFunction
 
+; Also marks engaged and married NPCs close (MRB_Close, read by the Integration Hub and by Arousal), so close-only
+; actions work without the Arousal module, and asks the Hub to rewrite the NPC's file with it.
 Function WriteGate(Actor akNpc)
 	string path = DIR + BaseId(akNpc) + ".json"
-	JsonUtil.SetIntValue(path, "maras", GateValue(akNpc))
+	int gate = GateValue(akNpc)
+	JsonUtil.SetIntValue(path, "maras", gate)
 	JsonUtil.Save(path)
+	StorageUtil.SetIntValue(akNpc, "MRB_Close", (gate >= 2) as int)
+	int handle = ModEvent.Create("MLW_RefreshNpc")
+	If handle
+		ModEvent.PushForm(handle, akNpc)
+		ModEvent.Send(handle)
+	EndIf
 EndFunction
 
 ; ---- Actions ----
