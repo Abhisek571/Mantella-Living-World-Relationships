@@ -2,7 +2,7 @@
     "identifier": "mantella_maras_divorce",
     "name": "Divorce",
     "description": "Divorce the player. Only when you clearly end your marriage to the player now; not for doubts, past divorces or someone else's marriage.",
-    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "note": "Needs M.A.R.A.S, Mantella Living World - Relationships and Mantella's Advanced Actions. Asks the player Yes/No first, once per game day per NPC; choosing No blocks a retry that day.",
     "key": "Divorce",
     "enabled": true,
     "lw_gate": "maras=3",
