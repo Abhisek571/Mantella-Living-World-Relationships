@@ -2,7 +2,7 @@
     "identifier": "mantella_maras_resolve_crisis",
     "name": "ResolveMarriageCrisis",
     "description": "Settle the marriage crisis with the player. 'reconcile' only if the player showed real remorse and you clearly agree to stay together; 'divorce' only if you clearly say the marriage is over; otherwise 'undecided'.",
-    "note": "Needs M.A.R.A.S and Mantella Living World - Relationships. Asks the player Yes/No before anything changes.",
+    "note": "Needs M.A.R.A.S, Mantella Living World - Relationships and Mantella's Advanced Actions. Asks the player Yes/No first, once per game day per NPC; choosing No blocks a retry that day.",
     "key": "ResolveMarriageCrisis",
     "enabled": true,
     "lw_gate": "maras=4",

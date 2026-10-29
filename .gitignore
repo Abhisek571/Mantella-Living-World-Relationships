@@ -8,3 +8,6 @@ test/out/
 .snapshots/
 __pycache__/
 docs/
+
+# compiled by tools/build.py in the Hub repo
+Scripts/*.pex

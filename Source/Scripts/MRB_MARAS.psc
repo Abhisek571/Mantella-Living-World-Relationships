@@ -52,6 +52,10 @@ EndEvent
 ; Tells the conversation who the player is married and engaged to, then lets
 ; Mantella continue (the action is marked requires_response).
 Function SendSpouses()
+	If !MarasLoaded()
+		Completed(ACTION_SPOUSES)
+		Return
+	EndIf
 	string married = NameList(MARAS.GetNPCsByStatus("married"), None)
 	string engaged = NameList(MARAS.GetNPCsByStatus("engaged"), None)
 	string line = ""
@@ -293,6 +297,7 @@ Function WriteGate(Actor akNpc)
 	string path = DIR + BaseId(akNpc) + ".json"
 	int gate = GateValue(akNpc)
 	JsonUtil.SetIntValue(path, "maras", gate)
+	JsonUtil.SetIntValue(path, "maras_on", 1)  ; gates the spouses action: only offered with M.A.R.A.S installed
 	JsonUtil.Save(path)
 	StorageUtil.SetIntValue(akNpc, "MRB_Close", (gate >= 2) as int)
 	int handle = ModEvent.Create("MLW_RefreshNpc")
