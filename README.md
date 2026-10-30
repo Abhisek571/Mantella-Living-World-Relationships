@@ -14,6 +14,8 @@ Mantella NPCs who know where they stand with you. A module of [Mantella Living W
 
 Each part runs only when its mod is installed. Group talks: if the last speaker cannot take a marriage step, the action goes to the one NPC in the talk who can; with two or more possible, nothing happens. Without Mantella's Advanced Actions on (Actions tab of Mantella's settings), the actions are not offered.
 
+Family (with Relations Finder): each NPC hears their family and ties. With Mantella Living World - World installed, a relative who died during the playthrough gets the day, close family (parent, child, sibling, spouse, partner) who died in the last 30 days are grieved, and close family you struck in that time are mentioned.
+
 Requires: the Integration Hub, Mantella - Direct AI Connect (supplies the action events), [Mantella](https://www.nexusmods.com/skyrimspecialedition/mods/98631) 0.14 with Advanced Actions on, [Papyrus MessageBox - SKSE NG](https://www.nexusmods.com/skyrimspecialedition/mods/83578), PapyrusUtil SE, SKSE_HTTP (comes with Mantella). Optional, each for its own part: [M.A.R.A.S](https://www.nexusmods.com/skyrimspecialedition/mods/159033) (with its TT_MARAS.esp), [Lover's Ledger](https://www.nexusmods.com/skyrimspecialedition/mods/158983), [Relations Finder](https://www.nexusmods.com/skyrimspecialedition/mods/158980). Keep the Hub and this module on matching versions.
 
 Build: the Hub's `tools/build.py --only relationships`.
