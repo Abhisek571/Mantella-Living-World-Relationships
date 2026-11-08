@@ -87,7 +87,7 @@ Event OnCheat(Form akNpc, string asWhat, float afValue)
 		StorageUtil.SetIntValue(npc, "MRB_CheatScoreSet", MARAS.GetPermanentAffection(npc))
 	ElseIf asWhat == "maras_affection"
 		If CrisisRunning(npc)
-			Debug.Notification(name + ": M.A.R.A.S is settling a marriage crisis; affection cheats wait")
+			Debug.Notification(name + ": M.A.R.A.S is settling a marriage crisis; debug menu affection changes wait")
 			Return
 		EndIf
 		int old = MARAS.GetPermanentAffection(npc)
@@ -116,7 +116,7 @@ Event OnCheat(Form akNpc, string asWhat, float afValue)
 		StorageUtil.UnsetIntValue(npc, "MRB_CheatScore")
 		StorageUtil.UnsetIntValue(npc, "MRB_CheatScoreSet")
 		If MARAS.GetPermanentAffection(npc) != setTo
-			Debug.Notification(name + ": affection changed since the cheat; left as it is")
+			Debug.Notification(name + ": affection changed since the debug menu set it; left as it is")
 			Return
 		EndIf
 		SetScore(npc, before)
