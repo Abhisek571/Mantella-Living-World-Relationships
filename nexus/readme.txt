@@ -1,5 +1,5 @@
 Mantella Living World - Relationships
-Version 1.1.0 by itsPigeon2000
+Version 1.2.0 by itsPigeon2000
 
 Mantella NPCs who know where they stand with you: marriage and spouses (M.A.R.A.S), family ties (Relations Finder) and your history together (Lover's Ledger). Each part runs only when its mod is installed.
 
