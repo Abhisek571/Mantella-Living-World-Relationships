@@ -41,10 +41,18 @@ EndEvent
 Event OnNpcAdded(Form akActor)
 	inConversation = true
 	Actor npc = akActor as Actor
-	If !npc || npc == PlayerRef || SKSE.GetPluginVersion("LoversLedger") < 0  ; Lover's Ledger not installed
+	If !npc || npc == PlayerRef || !PlayerTalkRunning()
 		Return
 	EndIf
-	string line = HistoryLine(npc)
+	string rank = RankLine(npc)
+	; Lover's Ledger not installed, or a child in the talk: no intimate history, acts or lovers are told.
+	If SKSE.GetPluginVersion("LoversLedger") < 0 || IsMinor(npc) || MinorInTalk()
+		If rank != ""
+			AddMantellaEvent(rank)
+		EndIf
+		Return
+	EndIf
+	string line = Join(rank, HistoryLine(npc))
 	string acts = ActsLine(npc)
 	string lovers = LoversLine(npc)
 	If acts != ""
@@ -57,6 +65,23 @@ Event OnNpcAdded(Form akActor)
 		AddMantellaEvent(line)
 	EndIf
 EndEvent
+
+; The relationship rank other mods set through dialogue. Mantella's own prompt doesn't mention it.
+string Function RankLine(Actor akActor)
+	int rank = akActor.GetRelationshipRank(PlayerRef)
+	string name = akActor.GetDisplayName()
+	If rank >= 4
+		Return name + " sees the player as a lover."
+	ElseIf rank == 3
+		If StorageUtil.GetIntValue(akActor, "MRB_Close", 0) > 0  ; M.A.R.A.S sets rank 3 for a fiance: the status line says it
+			Return ""
+		EndIf
+		Return name + " sees the player as a trusted ally."
+	ElseIf rank == 2
+		Return name + " sees the player as a close friend."
+	EndIf
+	Return ""
+EndFunction
 
 string Function HistoryLine(Actor akActor)
 	int alone = TTLL_Store.GetLoverInt(akActor, PlayerRef, "exclusiveSex")
@@ -77,17 +102,29 @@ EndFunction
 
 string Function ActsLine(Actor akActor)
 	string[] acts = TTLL_Store.GetAllActions(akActor, true, MAX_ACTS)
-	string list = ""
+	; Several act types share one word: name each word once.
+	string[] names = new string[3]
+	int count = 0
 	int i = 0
-	While i < acts.Length
+	While i < acts.Length && count < names.Length
 		If acts[i] != ""
-			list = MRB_Text.ListAdd(list, MRB_Text.ActName(acts[i]), i == acts.Length - 1)
+			string name = MRB_Text.ActName(acts[i])
+			If name != "" && names.Find(name) < 0
+				names[count] = name
+				count += 1
+			EndIf
 		EndIf
 		i += 1
 	EndWhile
-	If list == ""
+	If count == 0
 		Return ""
 	EndIf
+	string list = ""
+	i = 0
+	While i < count
+		list = MRB_Text.ListAdd(list, names[i], i == count - 1 && count > 1)
+		i += 1
+	EndWhile
 	Return "What " + akActor.GetDisplayName() + " does most in bed: " + list + "."
 EndFunction
 
@@ -151,9 +188,15 @@ Event OnLedgerThreadData(int aiThreadID)
 		EndIf
 		i += 1
 	EndWhile
-	AddMantellaEvent(partners + " and the player just finished having sex.")
-	If !TalkRunning() && MRB_AfterSceneTalk.GetValueInt() == 1
-		StartTalk(first)
+	string line = partners + " and the player just finished having sex."
+	; Mantella keeps a queued line until the next talk with anyone, so it is sent only to the player's running talk or
+	; right before opening one.
+	If PlayerTalkRunning()
+		If !OStimExpansionLoaded() && !MinorInTalk()  ; OStim Expansion tells the running talk about the scene itself
+			AddMantellaEvent(line)
+		EndIf
+	ElseIf MRB_AfterSceneTalk.GetValueInt() == 1
+		StartTalk(first, line)
 	EndIf
 EndEvent
 
@@ -161,13 +204,14 @@ EndEvent
 ; same as the player starting a conversation. Mantella reads queued in-game
 ; events when it builds the opening context, so the partner's first line can
 ; react to the scene.
-Function StartTalk(Actor akPartner)
+Function StartTalk(Actor akPartner, string asLine)
 	Spell mantellaSpell = Game.GetFormFromFile(0x0022EF, "Mantella.esp") as Spell
 	If !mantellaSpell || akPartner.IsDead() || akPartner.IsInCombat()
 		Return
 	EndIf
 	; Give the animation time to end so nobody talks mid get-up.
 	Utility.Wait(3.0)
+	AddMantellaEvent(asLine)
 	mantellaSpell.Cast(PlayerRef, akPartner)
 EndFunction
 
@@ -223,8 +267,41 @@ Function AddMantellaEvent(string asText)
 	EndIf
 EndFunction
 
-; Mantella's conversation quest runs only during a talk (the Ended event, and so inConversation, can be missed).
-bool Function TalkRunning()
-	Quest talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as Quest
-	Return talk && talk.IsRunning()
+; Mantella's conversation quest runs only during a talk (the Ended event, and so inConversation, can be missed), and
+; also for radiant talks between NPCs, so the player is looked for too.
+bool Function PlayerTalkRunning()
+	MantellaConversation talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as MantellaConversation
+	Return talk && talk.IsRunning() && talk.IsPlayerInConversation()
+EndFunction
+
+; A child, as the Integration Hub tells them apart: the child flag or a child race.
+bool Function IsMinor(Actor akActor)
+	If akActor.IsChild()
+		Return true
+	EndIf
+	Race actorRace = akActor.GetRace()
+	Return actorRace && StringUtil.Find(MiscUtil.GetRaceEditorID(actorRace), "Child") >= 0
+EndFunction
+
+; A child is in the running Mantella conversation.
+bool Function MinorInTalk()
+	MantellaConversation talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as MantellaConversation
+	If !talk || !talk.IsRunning()
+		Return false
+	EndIf
+	int count = talk.CountActorsInConversation()
+	int i = 0
+	While i < count
+		Actor member = talk.GetActorInConversationByIndex(i)
+		If member && member != PlayerRef && IsMinor(member)
+			Return true
+		EndIf
+		i += 1
+	EndWhile
+	Return false
+EndFunction
+
+bool Function OStimExpansionLoaded()
+	string esp = "Mantella Living World - OStim Expansion.esp"
+	Return Game.GetModByName(esp) != 255 || Game.GetLightModByName(esp) != 65535
 EndFunction
