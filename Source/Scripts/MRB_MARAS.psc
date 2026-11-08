@@ -83,7 +83,15 @@ Event OnCheat(Form akNpc, string asWhat, float afValue)
 		If !StorageUtil.HasIntValue(npc, "MRB_CheatScore")  ; M.A.R.A.S sets the affection with the status
 			StorageUtil.SetIntValue(npc, "MRB_CheatScore", MARAS.GetPermanentAffection(npc))
 		EndIf
+		int scoreBefore = MARAS.GetPermanentAffection(npc)
 		Promote(npc, names[i])
+		; M.A.R.A.S sets the new affection in its own handler of the status event, a moment later: wait for it (up to
+		; 3 s, menu-safe since the MCM is open) so Reset compares against the value the status really gave.
+		int tries = 15
+		While tries > 0 && MARAS.GetPermanentAffection(npc) == scoreBefore
+			Utility.WaitMenuMode(0.2)
+			tries -= 1
+		EndWhile
 		StorageUtil.SetIntValue(npc, "MRB_CheatScoreSet", MARAS.GetPermanentAffection(npc))
 	ElseIf asWhat == "maras_affection"
 		If CrisisRunning(npc)
