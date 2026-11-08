@@ -1,0 +1,33 @@
+{
+    "identifier": "mantella_maras_affection",
+    "name": "ChangeAffection",
+    "description": "Record a real change in your feelings for the player, caused by what was just said or done in this talk. 'warmer' or 'colder'; 'a little' for an ordinary moment, 'a lot' only for something that truly matters. Never for small talk.",
+    "note": "Needs M.A.R.A.S, Mantella Living World - Relationships and Mantella's Advanced Actions. Changes the NPC's M.A.R.A.S affection score at most 5 up or down per game day, never below 25, and not during a marriage crisis.",
+    "key": "ChangeAffection",
+    "enabled": true,
+    "lw_gate": "maras_tracked=1",
+    "parameters": {
+        "change": {
+            "type": "string",
+            "description": "One word: warmer or colder."
+        },
+        "amount": {
+            "type": "string",
+            "description": "Exactly one of: a little, a lot."
+        }
+    },
+    "required": [
+        "change",
+        "amount"
+    ],
+    "prompt": "When what the player just said or did has really changed how you feel about them, begin your response with '{key}:'",
+    "allowed_games": [
+        "skyrim"
+    ],
+    "requires_response": false,
+    "is-interrupting": false,
+    "allow_repeat": false,
+    "one-on-one": true,
+    "multi-npc": true,
+    "radiant": false
+}

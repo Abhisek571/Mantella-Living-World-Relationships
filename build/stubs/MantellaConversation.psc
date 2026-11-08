@@ -10,3 +10,5 @@ int Function CountActorsInConversation()
 EndFunction
 Actor Function GetActorInConversationByIndex(int indexOfActor)
 EndFunction
+bool Function IsPlayerInConversation()
+EndFunction
