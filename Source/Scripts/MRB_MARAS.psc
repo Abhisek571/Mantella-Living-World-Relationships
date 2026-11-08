@@ -324,7 +324,8 @@ string Function SameSexLine(Actor akNpc, string asName)
 		Return ""
 	EndIf
 	StorageUtil.SetIntValue(akNpc, "MRB_SameSexNoted", 1)
-	Return asName + " cannot be courted while M.A.R.A.S is set to opposite-sex only."
+	; Only marriage courting: worded so a friend's hug or other affection is not read as forbidden too.
+	Return asName + " cannot be courted for marriage through M.A.R.A.S, which is set to opposite-sex only; friendship and other affection are not affected."
 EndFunction
 
 ; Mantella also sends NPC_Added for radiant talks between NPCs; those get no lines and count no talk.
