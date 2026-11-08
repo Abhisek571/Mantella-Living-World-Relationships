@@ -14,10 +14,6 @@ Actor Property PlayerRef Auto
 int Property MAX_NAMES = 4 AutoReadOnly  ; per kind of tie
 float Property RECENT_DAYS = 30.0 AutoReadOnly
 
-; Filled by Tie for the NPC being described.
-string grieving = ""
-string struckKin = ""
-
 Event OnInit()
 	Register()
 EndEvent
@@ -28,25 +24,38 @@ EndFunction
 
 Event OnNpcAdded(Form akActor)
 	Actor npc = akActor as Actor
-	If !npc || npc == PlayerRef || SKSE.GetPluginVersion("RelationsFinder") < 0
+	If !npc || npc == PlayerRef || SKSE.GetPluginVersion("RelationsFinder") < 0 || !PlayerInTalk()
 		Return
 	EndIf
 	string ties = ""
-	grieving = ""
-	struckKin = ""
-	ties = Tie(ties, "parent", TTRF_RelationsFinder.GetNpcRelationships(npc, "ParentChild", "primary"))
-	ties = Tie(ties, "child", TTRF_RelationsFinder.GetNpcRelationships(npc, "ParentChild", "secondary"))
-	ties = Tie(ties, "sibling", TTRF_RelationsFinder.GetNpcRelationships(npc, "Siblings"))
-	ties = Tie(ties, "cousin", TTRF_RelationsFinder.GetNpcRelationships(npc, "Cousins"))
-	ties = Tie(ties, "spouse", TTRF_RelationsFinder.GetNpcRelationships(npc, "Spouse"))
-	ties = Tie(ties, "partner", TTRF_RelationsFinder.GetNpcRelationships(npc, "Courting"))
-	ties = Tie(ties, "works for", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "primary"))
-	ties = Tie(ties, "employs", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "secondary"))
-	ties = Tie(ties, "enemy of", TTRF_RelationsFinder.GetNpcRelationships(npc, "", "any", -4, -3))
-	ties = Tie(ties, "sworn enemy of", TTRF_RelationsFinder.GetNpcRelationships(npc, "", "any", -4, -4))
+	; Filled by Tie on the NPC itself: two NPCs joining one talk run this side by side.
+	StorageUtil.UnsetStringValue(npc, "MRB_Grieving")
+	StorageUtil.UnsetStringValue(npc, "MRB_Struck")
+	; M.A.R.A.S makes an NPC the player's spouse or fiance without touching the game's own spouse records.
+	string spouse = "spouse"
+	string partner = "partner"
+	If (Game.GetModByName("TT_MARAS.esp") != 255 || Game.GetLightModByName("TT_MARAS.esp") != 65535) \
+		&& (MARAS.IsNPCStatus(npc, "married") || MARAS.IsNPCStatus(npc, "engaged"))
+		spouse = "former spouse"
+		partner = "former partner"
+	EndIf
+	ties = Tie(npc, ties, "parent", TTRF_RelationsFinder.GetNpcRelationships(npc, "ParentChild", "primary"))
+	ties = Tie(npc, ties, "child", TTRF_RelationsFinder.GetNpcRelationships(npc, "ParentChild", "secondary"))
+	ties = Tie(npc, ties, "sibling", TTRF_RelationsFinder.GetNpcRelationships(npc, "Siblings"))
+	ties = Tie(npc, ties, "cousin", TTRF_RelationsFinder.GetNpcRelationships(npc, "Cousins"))
+	ties = Tie(npc, ties, spouse, TTRF_RelationsFinder.GetNpcRelationships(npc, "Spouse"))
+	ties = Tie(npc, ties, partner, TTRF_RelationsFinder.GetNpcRelationships(npc, "Courting"))
+	ties = Tie(npc, ties, "works for", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "primary"))
+	ties = Tie(npc, ties, "employs", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "secondary"))
+	ties = Tie(npc, ties, "enemy of", TTRF_RelationsFinder.GetNpcRelationships(npc, "", "any", -4, -3))
+	ties = Tie(npc, ties, "sworn enemy of", TTRF_RelationsFinder.GetNpcRelationships(npc, "", "any", -4, -4))
 	If ties != ""
 		AddMantellaEvent(npc.GetDisplayName() + "'s ties: " + ties + ".")
 	EndIf
+	string grieving = StorageUtil.GetStringValue(npc, "MRB_Grieving")
+	string struckKin = StorageUtil.GetStringValue(npc, "MRB_Struck")
+	StorageUtil.UnsetStringValue(npc, "MRB_Grieving")
+	StorageUtil.UnsetStringValue(npc, "MRB_Struck")
 	If grieving != ""
 		AddMantellaEvent(npc.GetDisplayName() + " is grieving: " + grieving + ".")
 	EndIf
@@ -55,8 +64,15 @@ Event OnNpcAdded(Form akActor)
 	EndIf
 EndEvent
 
+; Mantella also sends NPC_Added for radiant talks between NPCs; those get no lines.
+bool Function PlayerInTalk()
+	MantellaConversation talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as MantellaConversation
+	Return talk && talk.IsRunning() && talk.IsPlayerInConversation()
+EndFunction
+
 bool Function IsCloseKind(string asKind)
-	Return asKind == "parent" || asKind == "child" || asKind == "sibling" || asKind == "spouse" || asKind == "partner"
+	Return asKind == "parent" || asKind == "child" || asKind == "sibling" || asKind == "spouse" || asKind == "partner" \
+		|| asKind == "former spouse" || asKind == "former partner"
 EndFunction
 
 ; "today", "yesterday" or "N days ago".
@@ -78,8 +94,8 @@ string Function AddTo(string asList, string asText)
 	Return asText
 EndFunction
 
-; Adds "kind A, B (dead)" to the list; the player is left out (Relationships' MARAS part covers them).
-string Function Tie(string asTies, string asKind, Actor[] akActors)
+; Adds "kind A, B (dead)" to the list and grief or struck kin to akNpc's MRB_Grieving / MRB_Struck; the player is left out (Relationships' MARAS part covers them).
+string Function Tie(Actor akNpc, string asTies, string asKind, Actor[] akActors)
 	string names = ""
 	int count = 0
 	float now = Utility.GetCurrentGameTime()
@@ -94,7 +110,7 @@ string Function Tie(string asTies, string asKind, Actor[] akActors)
 				If died >= 0.0
 					name += " (died " + DaysAgo(died, now) + ")"
 					If close && now - died <= RECENT_DAYS
-						grieving = AddTo(grieving, "their " + asKind + " " + a.GetDisplayName() + ", who died " + DaysAgo(died, now))
+						StorageUtil.SetStringValue(akNpc, "MRB_Grieving", AddTo(StorageUtil.GetStringValue(akNpc, "MRB_Grieving"), "their " + asKind + " " + a.GetDisplayName() + ", who died " + DaysAgo(died, now)))
 					EndIf
 				Else
 					name += " (dead)"
@@ -102,7 +118,7 @@ string Function Tie(string asTies, string asKind, Actor[] akActors)
 			ElseIf close
 				float struck = StorageUtil.GetFloatValue(a, "MLWW_StruckDay", -1.0)
 				If struck >= 0.0 && now - struck <= RECENT_DAYS
-					struckKin = AddTo(struckKin, "their " + asKind + " " + a.GetDisplayName() + " " + DaysAgo(struck, now))
+					StorageUtil.SetStringValue(akNpc, "MRB_Struck", AddTo(StorageUtil.GetStringValue(akNpc, "MRB_Struck"), "their " + asKind + " " + a.GetDisplayName() + " " + DaysAgo(struck, now)))
 				EndIf
 			EndIf
 			If names != ""
