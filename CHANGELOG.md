@@ -2,7 +2,7 @@
 
 Every change to Mantella Living World - Relationships. The Nexus page lists only the main changes for each version.
 
-## Unreleased
+## 1.2.0 (2026-11-09)
 
 ### New
 - Affection action: an NPC's feelings for you grow warmer or colder after something in the talk that truly matters, through M.A.R.A.S.
