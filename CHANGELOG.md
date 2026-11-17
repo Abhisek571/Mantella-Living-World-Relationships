@@ -17,6 +17,7 @@ Every change to Mantella Living World - Relationships. The Nexus page lists only
 - The after-scene talk is not opened when you have walked away from your partner (about 21 m), and every time it is not opened the Papyrus log says why (too far, timed out, a talk already open, setting off).
 
 ### Fixed
+- request_results.json keeps only the newest 50 results instead of growing for the whole game.
 - An NPC married to you no longer calls their own husband or wife "former spouse": the line says they left that spouse to marry you.
 - Lover's Ledger: an NPC is no longer told they have "also been intimate with" their own husband or wife.
 - A husband or wife who died or was struck is now grieved and mentioned like other close family.

@@ -450,6 +450,27 @@ for ident, a in actions.items():
         for p in read - params:
             err(f'{ident}: {sname}.{h} reads {p}, which the action file does not declare')
 
+# ---- 6. request_results.json stays bounded ---------------------------------------------------------------------------
+# request_results.json was only ever appended to, and RequestDone reads it whole once per request row. RecordResult keeps
+# the newest MAX_RESULTS (the Hub keeps its newest 50 requests, so every request it still lists keeps its result).
+
+maras_src = open(os.path.join(ROOT, 'Source', 'Scripts', 'MRB_MARAS.psc'), encoding='utf-8').read()
+record = re.search(r'^Function RecordResult\(.*?^EndFunction', maras_src, re.M | re.S)
+record = record.group(0) if record else ''
+cap = re.search(r'int Property MAX_RESULTS = (\d+) AutoReadOnly', maras_src)
+hub_contracts = os.path.join(CODING, 'Mantella-Living-World-Hub', 'server', 'living_world', 'contracts.py')
+hub_cap = re.search(r'^MAX_REQUESTS = (\d+)', open(hub_contracts, encoding='utf-8').read(), re.M) if os.path.isfile(hub_contracts) else None
+if not cap or not record:
+    err('MRB_MARAS.psc: MAX_RESULTS or RecordResult not found')
+else:
+    if 'If n < MAX_RESULTS' not in record or 'int i = n - MAX_RESULTS + 1' not in record \
+            or 'JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")' not in record:
+        err('MRB_MARAS.RecordResult: request_results.json is not trimmed to the newest MAX_RESULTS')
+    if '> MAX_RESULTS' not in record:
+        err('MRB_MARAS.RecordResult: the handled-request list is not capped at MAX_RESULTS')
+    if hub_cap and int(hub_cap.group(1)) > int(cap.group(1)):
+        err(f"MRB_MARAS.MAX_RESULTS {cap.group(1)} is below the Hub's MAX_REQUESTS {hub_cap.group(1)}: a listed request could lose its result")
+
 # ---------------------------------------------------------------------------------------------------------------------
 
 verbose = '-v' in sys.argv
