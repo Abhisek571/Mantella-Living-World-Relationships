@@ -801,7 +801,7 @@ string Function EndMarriage(string asBase, string asName, string asWhy)
 	If name == ""
 		name = asName
 	EndIf
-	string text = "End your marriage to " + name + "?"
+	string text = "Divorce (M.A.R.A.S): end your marriage to " + name + "?"
 	If asWhy != ""
 		text += "\n\n" + asWhy
 	EndIf
@@ -1108,9 +1108,9 @@ Function ResolveCrisis(Actor npc, string decision)
 		Return
 	EndIf
 	string name = npc.GetDisplayName()
-	string ask = name + " wants to stay married. Reconcile?"
+	string ask = "Marriage crisis (M.A.R.A.S): " + name + " wants to stay married. Reconcile?"
 	If decision == "divorce"
-		ask = name + " wants a divorce. Accept it?"
+		ask = "Divorce (M.A.R.A.S): " + name + " wants a divorce. Accept it?"
 	EndIf
 	; On M.A.R.A.S 2.x, stage 200 shows its own box when these settings are on: one box is enough.
 	bool marasAsks = decision == "divorce" && maras2x && MRB_MarasCalls2x.AsksBeforeCrisisDivorce()
@@ -1148,7 +1148,7 @@ Function Accept(Actor akNpc)
 	If StorageUtil.GetIntValue(akNpc, "MRB_ProposalRoll") == 0
 		AddMantellaEvent(akNpc.GetDisplayName() + " is not ready to say yes to a proposal today.")
 		Return
-	ElseIf !Confirm("accept", akNpc, akNpc.GetDisplayName() + " accepted your proposal. Get engaged?")
+	ElseIf !Confirm("accept", akNpc, "Engagement (M.A.R.A.S): " + akNpc.GetDisplayName() + " accepted your proposal. Get engaged?")
 		Return
 	EndIf
 	Promote(akNpc, "engaged")
@@ -1165,7 +1165,7 @@ Function Break(Actor akNpc)
 	ElseIf !MARAS.IsNPCStatus(akNpc, "engaged")
 		NothingChanged(akNpc)
 		Return
-	ElseIf !Confirm("break", akNpc, akNpc.GetDisplayName() + " wants to call off the engagement. Accept it?")
+	ElseIf !Confirm("break", akNpc, "Engagement (M.A.R.A.S): " + akNpc.GetDisplayName() + " wants to call off your engagement. Accept it?")
 		Return
 	EndIf
 	Promote(akNpc, "jilted")
@@ -1183,7 +1183,7 @@ Function Divorce(Actor akNpc)
 	ElseIf !MARAS.IsNPCStatus(akNpc, "married") || CrisisRunning(akNpc)
 		NothingChanged(akNpc)
 		Return
-	ElseIf !Confirm("divorce", akNpc, akNpc.GetDisplayName() + " wants a divorce. Accept it?")
+	ElseIf !Confirm("divorce", akNpc, "Divorce (M.A.R.A.S): " + akNpc.GetDisplayName() + " wants a divorce. Accept it?")
 		Return
 	ElseIf !DivorceNow(akNpc)
 		NothingChanged(akNpc)
