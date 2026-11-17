@@ -112,9 +112,10 @@ bool Function PlayerInTalk()
 	Return talk && talk.IsRunning() && talk.IsPlayerInConversation()
 EndFunction
 
+; SpouseWord names a spouse "husband" or "wife": those are close too.
 bool Function IsCloseKind(string asKind)
-	Return asKind == "parent" || asKind == "child" || asKind == "sibling" || asKind == "spouse" || asKind == "partner" \
-		|| asKind == "former spouse" || asKind == "former partner"
+	Return asKind == "parent" || asKind == "child" || asKind == "sibling" || asKind == "spouse" || asKind == "husband" \
+		|| asKind == "wife" || asKind == "partner" || asKind == "former spouse" || asKind == "former partner"
 EndFunction
 
 ; "today", "yesterday" or "N days ago".

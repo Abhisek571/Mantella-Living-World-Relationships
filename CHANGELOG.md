@@ -17,6 +17,9 @@ Every change to Mantella Living World - Relationships. The Nexus page lists only
 - The after-scene talk is not opened when you have walked away from your partner (about 21 m), and every time it is not opened the Papyrus log says why (too far, timed out, a talk already open, setting off).
 
 ### Fixed
+- A husband or wife counts as close family: a widow is told she is grieving her husband, and an NPC is told you struck their wife. Before, only the word spouse counted.
+- ChangeAffection and ResolveMarriageCrisis offer only the words they act on, so other wordings ("slightly warmer", "reconciled") no longer do nothing.
+- Affection changes and the marriage log wait for each other in steps the game keeps reliably.
 - request_results.json keeps only the newest 50 results instead of growing for the whole game.
 - An NPC married to you no longer calls their own husband or wife "former spouse": the line says they left that spouse to marry you.
 - Lover's Ledger: an NPC is no longer told they have "also been intimate with" their own husband or wife.

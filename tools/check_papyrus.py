@@ -471,6 +471,44 @@ else:
     if hub_cap and int(hub_cap.group(1)) > int(cap.group(1)):
         err(f"MRB_MARAS.MAX_RESULTS {cap.group(1)} is below the Hub's MAX_REQUESTS {hub_cap.group(1)}: a listed request could lose its result")
 
+# ---- 7. every word a family tie is named by is known to IsCloseKind -------------------------------------------------
+# SpouseWord names the spouse "husband" or "wife", but IsCloseKind only knew "spouse": a widow was never told she grieves.
+
+family = next((s for s in own if s.name == 'MRB_Family'), None)
+if family and 'spouseword' in family.funcs and 'isclosekind' in family.funcs:
+    close_words = {w for _, l in family.funcs['isclosekind']['body'] for w in re.findall(r'asKind\s*==\s*"([^"]+)"', l)}
+    for n, l in family.funcs['spouseword']['body']:
+        for word in re.findall(r'Return\s+"([^"]+)"', l):
+            if word not in close_words:
+                err(f'MRB_Family.psc:{n}: SpouseWord returns "{word}", which IsCloseKind does not treat as close family')
+else:
+    err('MRB_Family.psc: SpouseWord or IsCloseKind not found')
+
+# ---- 8. words a handler acts on only by exact match come from the action file's enum ---------------------------------
+# ChangeAffection and ResolveMarriageCrisis took free text: "slightly warmer" or "reconciled" silently did nothing.
+
+maras = next((s for s in own if s.name == 'MRB_MARAS'), None)
+for ident, param, fname, var in (('mantella_maras_affection', 'change', 'changeaffection', 'asChange'),
+                                 ('mantella_maras_affection', 'amount', 'changeaffection', 'asAmount'),
+                                 ('mantella_maras_resolve_crisis', 'decision', 'resolvecrisis', 'decision')):
+    spec = ((actions.get(ident) or {}).get('parameters') or {}).get(param) or {}
+    words = {w for _, l in (maras.funcs.get(fname, {}).get('body', []) if maras else [])
+             for w in re.findall(var + r'\s*[!=]=\s*"([^"]+)"', l)}
+    if not words:
+        err(f'{ident}.{param}: MRB_MARAS.{fname} compares no words (check needs updating)')
+    elif not isinstance(spec.get('enum'), list):
+        err(f'{ident}.{param}: no enum, but MRB_MARAS acts only on {sorted(words)}')
+    elif not words <= set(spec['enum']):
+        err(f'{ident}.{param}: enum {spec["enum"]} lacks {sorted(words - set(spec["enum"]))}, which MRB_MARAS acts on')
+
+# ---- 9. no lock or retry loop waits under 0.1 s (a shorter wait is one frame at best, and 40 tries end far too soon) ---
+
+for s in own:
+    for n, l in s.lines:
+        m = re.search(r'Utility\.Wait(?:MenuMode)?\(\s*(\d*\.?\d+)\s*\)', l)
+        if m and float(m.group(1)) < 0.1:
+            err(f'{s.name}.psc:{n}: waits {m.group(1)} s; Papyrus waits under 0.1 s are not reliable')
+
 # ---------------------------------------------------------------------------------------------------------------------
 
 verbose = '-v' in sys.argv
