@@ -67,7 +67,11 @@ Function SendTies(Actor npc)
 	ties = Tie(npc, ties, "child", TTRF_RelationsFinder.GetNpcRelationships(npc, "ParentChild", "secondary"))
 	ties = Tie(npc, ties, "sibling", TTRF_RelationsFinder.GetNpcRelationships(npc, "Siblings"))
 	ties = Tie(npc, ties, "cousin", TTRF_RelationsFinder.GetNpcRelationships(npc, "Cousins"))
+	string withoutSpouse = ties
 	ties = Tie(npc, ties, SpouseWord(spouses), spouses, after)
+	If ties != withoutSpouse  ; the M.A.R.A.S note goes on the first of the spouse and partner ties only
+		after = ""
+	EndIf
 	ties = Tie(npc, ties, "partner", TTRF_RelationsFinder.GetNpcRelationships(npc, "Courting"), after)
 	ties = Tie(npc, ties, "works for", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "primary"))
 	ties = Tie(npc, ties, "employs", TTRF_RelationsFinder.GetNpcRelationships(npc, "BossEmployee", "secondary"))
