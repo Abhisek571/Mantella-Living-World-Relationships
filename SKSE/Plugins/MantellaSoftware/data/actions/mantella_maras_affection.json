@@ -9,11 +9,18 @@
     "parameters": {
         "change": {
             "type": "string",
-            "description": "warmer or colder"
+            "enum": [
+                "warmer",
+                "colder"
+            ]
         },
         "amount": {
             "type": "string",
-            "description": "a little (an ordinary moment) or a lot (something that truly matters)"
+            "enum": [
+                "a little",
+                "a lot"
+            ],
+            "description": "a lot only for something that truly matters"
         }
     },
     "required": [

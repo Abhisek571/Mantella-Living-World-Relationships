@@ -9,7 +9,11 @@
     "parameters": {
         "decision": {
             "type": "string",
-            "description": "One word: reconcile, divorce or undecided."
+            "enum": [
+                "reconcile",
+                "divorce",
+                "undecided"
+            ]
         }
     },
     "required": [

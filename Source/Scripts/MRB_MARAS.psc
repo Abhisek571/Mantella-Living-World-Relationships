@@ -637,7 +637,7 @@ Function LogMarriage(Actor akNpc, string asStatus)
 		+ ",\"player\":" + MRB_Text.Quote(PlayerRef.GetDisplayName()) + "}"
 	int tries = 0
 	While logging && tries < 40
-		Utility.WaitMenuMode(0.05)
+		Utility.WaitMenuMode(0.1)
 		tries += 1
 	EndWhile
 	logging = true
@@ -981,11 +981,12 @@ EndFunction
 
 ; Events run side by side, and each call into M.A.R.A.S lets another one in on this script: two changes at once (a
 ; gift and the action in one reply) would both read the same total and score. Call before reading them, and set
-; scoring to false right after; gives up waiting after about 2 seconds rather than hold anything up for good.
+; scoring to false right after; gives up waiting after about 4 seconds rather than hold anything up for good (a wait
+; under 0.1 s is one frame at best).
 Function LockScore()
 	int tries = 0
 	While scoring && tries < 40
-		Utility.WaitMenuMode(0.05)
+		Utility.WaitMenuMode(0.1)
 		tries += 1
 	EndWhile
 	scoring = true
