@@ -41,6 +41,7 @@ string Property REQUESTS_FILE = "MantellaLivingWorld/requests.json" AutoReadOnly
 string Property RESULTS_FILE = "MantellaLivingWorld/request_results.json" AutoReadOnly
 string Property FLAGS_FILE = "MantellaLivingWorld/npc_flags.json" AutoReadOnly  ; the Hub's per-NPC switches
 string Property KEY_REQUESTS_DONE = "MRB_RequestsDone" AutoReadOnly
+int Property MAX_RESULTS = 50 AutoReadOnly  ; results kept in request_results.json (the Hub keeps its newest 50 requests)
 
 bool maras2x = false  ; set by ProbeMaras when an NPC joins a talk
 bool scoring = false  ; one score change at a time, see LockScore
@@ -746,7 +747,7 @@ Function RecordResult(string asId, bool abNumeric, string asResult)
 	If StorageUtil.StringListFind(None, KEY_REQUESTS_DONE, asId) < 0
 		StorageUtil.StringListAdd(None, KEY_REQUESTS_DONE, asId)
 	EndIf
-	While StorageUtil.StringListCount(None, KEY_REQUESTS_DONE) > 50
+	While StorageUtil.StringListCount(None, KEY_REQUESTS_DONE) > MAX_RESULTS
 		StorageUtil.StringListRemoveAt(None, KEY_REQUESTS_DONE, 0)
 	EndWhile
 	string id = MRB_Text.Quote(asId)
@@ -762,7 +763,24 @@ Function RecordResult(string asId, bool abNumeric, string asResult)
 	If n < 0
 		n = 0
 	EndIf
-	JsonUtil.SetRawPathValue(RESULTS_FILE, ".results[" + n + "]", "{\"id\":" + id + ",\"result\":\"" + asResult + "\"}")
+	string row = "{\"id\":" + id + ",\"result\":\"" + asResult + "\"}"
+	If n < MAX_RESULTS
+		JsonUtil.SetRawPathValue(RESULTS_FILE, ".results[" + n + "]", row)
+	Else
+		; only the newest MAX_RESULTS are kept: written again as one array, the oldest left out
+		string kept = "["
+		int i = n - MAX_RESULTS + 1
+		While i < n
+			string at = ".results[" + i + "]"
+			string oldId = MRB_Text.Quote(JsonUtil.GetPathStringValue(RESULTS_FILE, at + ".id"))
+			If JsonUtil.IsPathNumber(RESULTS_FILE, at + ".id")
+				oldId = JsonUtil.GetPathIntValue(RESULTS_FILE, at + ".id") as string
+			EndIf
+			kept += "{\"id\":" + oldId + ",\"result\":" + MRB_Text.Quote(JsonUtil.GetPathStringValue(RESULTS_FILE, at + ".result")) + "},"
+			i += 1
+		EndWhile
+		JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")
+	EndIf
 	JsonUtil.Save(RESULTS_FILE)
 	JsonUtil.Unload(RESULTS_FILE, false, false)
 EndFunction
