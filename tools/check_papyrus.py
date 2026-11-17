@@ -236,7 +236,7 @@ registered = {}  # (script, handler lower) -> [event]
 for s in own:
     for f in s.funcs.values():
         for n, l in f['body']:
-            m = re.search(r'RegisterForModEvent\(', l, re.I)
+            m = re.search(r'(?<!Un)RegisterForModEvent\(', l, re.I)
             if not m:
                 continue
             a = args_of(l, m.end() - 1)
