@@ -9,37 +9,41 @@ Actor Property PlayerRef Auto
 ; 1 = after a scene, open a Mantella conversation with the partner if none is running.
 GlobalVariable Property MRB_AfterSceneTalk Auto
 
+; The after-scene talk waits until the player has been out of dialogue and scenes this long, and gives up after the
+; longer wait: it never cuts into the player's next dialogue line or a scene that follows (live test 15).
+float Property QUIET_SECONDS = 10.0 AutoReadOnly
+float Property MAX_WAIT_SECONDS = 90.0 AutoReadOnly
+; Farther than this from the partner and the player has left: no talk (live test 17: 5,000+ units away). About 21 m, the
+; range a Mantella conversation is started at by hand.
+float Property TALK_DISTANCE = 1500.0 AutoReadOnly
+
 ; How many lovers and acts to name.
 int Property MAX_LOVERS = 3 AutoReadOnly
 int Property MAX_ACTS = 3 AutoReadOnly
 
-bool inConversation = false
+int sceneToken = 0  ; raised for every scene with the player: only the newest after-scene wait opens a talk
 
 Event OnInit()
 	Register()
 EndEvent
 
 Function Register()
-	RegisterForModEvent("MantellaConversation_Started", "OnConversationStarted")
 	RegisterForModEvent("MantellaConversation_NPC_Added", "OnNpcAdded")
-	RegisterForModEvent("MantellaConversation_Ended", "OnConversationEnded")
+	; the Started and Ended registrations of older saves find no handler now: Mantella's own state is read instead
+	; (PlayerTalkRunning)
+	UnregisterForModEvent("MantellaConversation_Started")
+	UnregisterForModEvent("MantellaConversation_Ended")
 	RegisterForModEvent("ttll_thread_data_event", "OnLedgerThreadData")
 EndFunction
-
-Event OnConversationStarted()
-	inConversation = true
-EndEvent
-
-Event OnConversationEnded()
-	inConversation = false
-EndEvent
 
 ; ---------------------------------------------------------------------------
 ; History, acts and lovers, once per NPC when they join
 ; ---------------------------------------------------------------------------
 
 Event OnNpcAdded(Form akActor)
-	inConversation = true
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_Ledger,OnNpcAdded_start,\n", true, false)
+	EndIf
 	Actor npc = akActor as Actor
 	If !npc || npc == PlayerRef || !PlayerTalkRunning()
 		Return
@@ -63,6 +67,9 @@ Event OnNpcAdded(Form akActor)
 	EndIf
 	If line != ""
 		AddMantellaEvent(line)
+	EndIf
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_Ledger,OnNpcAdded_end,\n", true, false)
 	EndIf
 EndEvent
 
@@ -128,15 +135,21 @@ string Function ActsLine(Actor akActor)
 	Return "What " + akActor.GetDisplayName() + " does most in bed: " + list + "."
 EndFunction
 
+; Their own spouse is left out: being intimate with one's husband or wife is not news (live test: "Gerdur has also been
+; intimate with Hod").
 string Function LoversLine(Actor akActor)
 	Form[] lovers = TTLL_Store.GetAllLovers(akActor, MAX_LOVERS + 1)
 	ActorBase playerBase = PlayerRef.GetActorBase()
+	ActorBase[] spouses
+	If SKSE.GetPluginVersion("powerofthree's Papyrus Extender") >= 0
+		spouses = PO3_SKSEFunctions.GetRelationships(akActor.GetActorBase(), Game.GetFormFromFile(0x0142CA, "Skyrim.esm") as AssociationType)
+	EndIf
 	string[] names = new string[4]
 	int count = 0
 	int i = 0
 	While i < lovers.Length && count < MAX_LOVERS
 		ActorBase loverBase = lovers[i] as ActorBase
-		If loverBase && loverBase != playerBase && loverBase.GetName() != ""
+		If loverBase && loverBase != playerBase && loverBase.GetName() != "" && !(spouses && spouses.Find(loverBase) >= 0)
 			names[count] = loverBase.GetName()
 			count += 1
 		EndIf
@@ -169,6 +182,10 @@ Event OnLedgerThreadData(int aiThreadID)
 	int i = 0
 	While i < actors.Length
 		If actors[i] && actors[i] != PlayerRef
+			If IsMinor(actors[i])  ; no line and no talk for a thread with a child
+				NotStarted(actors[i], "a child is in the scene")
+				Return
+			EndIf
 			count += 1
 			If !first
 				first = actors[i]
@@ -179,6 +196,7 @@ Event OnLedgerThreadData(int aiThreadID)
 	If !first
 		Return
 	EndIf
+	sceneToken += 1
 	i = 0
 	int named = 0
 	While i < actors.Length
@@ -196,23 +214,71 @@ Event OnLedgerThreadData(int aiThreadID)
 			AddMantellaEvent(line)
 		EndIf
 	ElseIf MRB_AfterSceneTalk.GetValueInt() == 1
-		StartTalk(first, line)
+		StartTalk(first, line, sceneToken)
+	Else
+		NotStarted(first, "the setting is off (MRB_AfterSceneTalk 0)")
 	EndIf
 EndEvent
+
+; One line in the Papyrus log saying why no after-scene talk was opened.
+Function NotStarted(Actor akPartner, string asWhy)
+	Debug.Trace("Mantella Living World - Relationships: no after-scene talk with " + akPartner.GetDisplayName() + ": " + asWhy + ".")
+EndFunction
 
 ; Casts Mantella's own conversation spell from the player on the partner, the
 ; same as the player starting a conversation. Mantella reads queued in-game
 ; events when it builds the opening context, so the partner's first line can
 ; react to the scene.
-Function StartTalk(Actor akPartner, string asLine)
+Function StartTalk(Actor akPartner, string asLine, int aiToken)
 	Spell mantellaSpell = Game.GetFormFromFile(0x0022EF, "Mantella.esp") as Spell
-	If !mantellaSpell || akPartner.IsDead() || akPartner.IsInCombat()
+	If !mantellaSpell
+		NotStarted(akPartner, "Mantella's conversation spell was not found")
+		Return
+	ElseIf akPartner.IsDead() || akPartner.IsInCombat()
+		NotStarted(akPartner, "the partner is dead or in combat")
 		Return
 	EndIf
-	; Give the animation time to end so nobody talks mid get-up.
-	Utility.Wait(3.0)
-	AddMantellaEvent(asLine)
+	; Not while the game's own dialogue menu is open, a scene runs (OStim takes the controls) or another talk runs:
+	; QUIET_SECONDS without any of them first, so a dialogue mod's next line or the next scene is never cut into.
+	float waited = 0.0
+	float quiet = 0.0
+	While quiet < QUIET_SECONDS && waited < MAX_WAIT_SECONDS
+		Utility.Wait(1.0)
+		waited += 1.0
+		If PlayerRef.GetDistance(akPartner) > TALK_DISTANCE
+			NotStarted(akPartner, "the player went too far away")
+			Return
+		ElseIf PlayerBusy()
+			quiet = 0.0
+		Else
+			quiet += 1.0
+		EndIf
+	EndWhile
+	If aiToken != sceneToken  ; a later scene's wait opens the talk with its own line
+		NotStarted(akPartner, "a newer scene came first")
+		Return
+	ElseIf quiet < QUIET_SECONDS  ; the player went on with something else: no talk is opened
+		NotStarted(akPartner, "timed out after " + (MAX_WAIT_SECONDS as int) + " s in dialogue, a scene or a talk")
+		Return
+	ElseIf akPartner.IsDead() || akPartner.IsInCombat()
+		NotStarted(akPartner, "the partner is dead or in combat")
+		Return
+	ElseIf PlayerTalkRunning()
+		NotStarted(akPartner, "a talk was already open")
+		Return
+	ElseIf PlayerBusy()
+		NotStarted(akPartner, "the player is in dialogue or a scene")
+		Return
+	EndIf
+	If !OStimExpansionLoaded()  ; OStim Expansion keeps the scene and tells this talk itself: never two lines
+		AddMantellaEvent(asLine)
+	EndIf
 	mantellaSpell.Cast(PlayerRef, akPartner)
+EndFunction
+
+; In the game's own dialogue, in a scene (OStim disables the controls while one runs) or in a Mantella talk.
+bool Function PlayerBusy()
+	Return UI.IsMenuOpen("Dialogue Menu") || !Game.IsMovementControlsEnabled() || PlayerTalkRunning()
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -267,7 +333,7 @@ Function AddMantellaEvent(string asText)
 	EndIf
 EndFunction
 
-; Mantella's conversation quest runs only during a talk (the Ended event, and so inConversation, can be missed), and
+; Mantella's conversation quest runs only during a talk (the Ended event can be missed), and
 ; also for radiant talks between NPCs, so the player is looked for too.
 bool Function PlayerTalkRunning()
 	MantellaConversation talk = Game.GetFormFromFile(0x03D41A, "Mantella.esp") as MantellaConversation

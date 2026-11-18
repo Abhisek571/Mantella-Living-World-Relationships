@@ -1,5 +1,5 @@
 Mantella Living World - Relationships
-Version 1.2.0 by itsPigeon2000
+Version 1.2.1 by itsPigeon2000
 
 Mantella NPCs who know where they stand with you: marriage and spouses (M.A.R.A.S), family ties (Relations Finder) and your history together (Lover's Ledger). Each part runs only when its mod is installed.
 
@@ -12,7 +12,7 @@ What it does
 - Wedding day: a spouse knows the wedding date and how long you have been married, for weddings that happen with this module installed.
 - Learn the player's spouses: you can tell an NPC who you are married and engaged to. Only offered when M.A.R.A.S is installed.
 - Family ties (Relations Finder): parents, children, siblings, spouses, cousins, partners, bosses, employees, enemies and sworn enemies, up to 4 names per kind. With Mantella Living World - World, a relative who died in your playthrough gets the day, close family who died in the last 30 days are grieved, and close family you struck are mentioned. The game's own spouse of an NPC who married you through M.A.R.A.S is named as former.
-- Shared history (Lover's Ledger): a short summary of your time together (a few favourite acts and other lovers) and a short talk after a scene, never while a child is in the talk. Needs an adult framework that Lover's Ledger supports (OStim). The after-scene talk is skipped if the partner is dead or in combat; type set MRB_AfterSceneTalk to 0 in the console to turn it off (1 turns it back on).
+- Shared history (Lover's Ledger): a short summary of your time together (a few favourite acts and other lovers) and a short talk after a scene, never while a child is in the talk. Needs an adult framework that Lover's Ledger supports (OStim). The after-scene talk waits until you have been out of the game's dialogue, scenes and other talks for 10 seconds (skipped after 90 seconds), and is skipped if the partner is dead or in combat; type set MRB_AfterSceneTalk to 0 in the console to turn it off (1 turns it back on).
 - Engaged and married NPCs count as close for the other modules' actions; on M.A.R.A.S 2.x, also dating and lover.
 - Radiant talks between NPCs get none of these lines.
 

@@ -11,6 +11,7 @@ usage: py -3 tools/check_papyrus.py [-v]
   4. M.A.R.A.S 2.x natives that 0.11.1 lacks or declares differently are called only from MRB_MarasCalls2x (changed
      ones also from MRB_MarasCalls011)
   5. every action JSON parameter is read by its advanced handler, and the handler reads no undeclared parameter
+  6-10. results cap, close-family words, action enums, short waits, no after-scene line for a scene with a child
 
 Exit 1 on any error. Warnings are printed but do not fail.
 """
@@ -236,7 +237,7 @@ registered = {}  # (script, handler lower) -> [event]
 for s in own:
     for f in s.funcs.values():
         for n, l in f['body']:
-            m = re.search(r'RegisterForModEvent\(', l, re.I)
+            m = re.search(r'(?<!Un)RegisterForModEvent\(', l, re.I)
             if not m:
                 continue
             a = args_of(l, m.end() - 1)
@@ -307,6 +308,9 @@ def close(a, b):
     return prev[-1] <= 2
 
 
+# distinct keys that only look like a typo: wares is the World module's trade key, maras this module's gate
+NEAR_MISS_OK = {frozenset(('maras', 'wares'))}
+
 ownkeys = [(lib, k) for (lib, k), v in keys.items() if v['own']]
 for lib, k in ownkeys:
     v = keys[(lib, k)]
@@ -323,7 +327,7 @@ for lib, k in ownkeys:
     if writes and not reads:
         warn(f'{lib} key {sorted(v["spell"])[0]} is written but never read in Living World sources (the Hub reads JSON files as data)')
     for lib2, k2 in keys:
-        if lib2 == lib and k2 > k and close(k, k2) and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
+        if lib2 == lib and k2 > k and close(k, k2) and frozenset((k, k2)) not in NEAR_MISS_OK and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
                                                         or bool(writes) != bool(keys[(lib2, k2)]['ops'].get('write'))):
             err(f'{lib} keys {k} and {k2} differ by a letter or two and one is only read or only written')
 
@@ -449,6 +453,81 @@ for ident, a in actions.items():
             err(f'{ident}: parameter {p} is never read by {sname}.{h}')
         for p in read - params:
             err(f'{ident}: {sname}.{h} reads {p}, which the action file does not declare')
+
+# ---- 6. request_results.json stays bounded ---------------------------------------------------------------------------
+# request_results.json was only ever appended to, and RequestDone reads it whole once per request row. RecordResult keeps
+# the newest MAX_RESULTS (the Hub keeps its newest 50 requests, so every request it still lists keeps its result).
+
+maras_src = open(os.path.join(ROOT, 'Source', 'Scripts', 'MRB_MARAS.psc'), encoding='utf-8').read()
+record = re.search(r'^Function RecordResult\(.*?^EndFunction', maras_src, re.M | re.S)
+record = record.group(0) if record else ''
+cap = re.search(r'int Property MAX_RESULTS = (\d+) AutoReadOnly', maras_src)
+hub_contracts = os.path.join(CODING, 'Mantella-Living-World-Hub', 'server', 'living_world', 'contracts.py')
+hub_cap = re.search(r'^MAX_REQUESTS = (\d+)', open(hub_contracts, encoding='utf-8').read(), re.M) if os.path.isfile(hub_contracts) else None
+if not cap or not record:
+    err('MRB_MARAS.psc: MAX_RESULTS or RecordResult not found')
+else:
+    if 'If n < MAX_RESULTS' not in record or 'int i = n - MAX_RESULTS + 1' not in record \
+            or 'JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")' not in record:
+        err('MRB_MARAS.RecordResult: request_results.json is not trimmed to the newest MAX_RESULTS')
+    mark = re.search(r'^Function MarkRequestDone\(.*?^EndFunction', maras_src, re.M | re.S)
+    if '> MAX_RESULTS' not in record and not ('MarkRequestDone(asId)' in record and mark and '> MAX_RESULTS' in mark.group(0)):
+        err('MRB_MARAS.RecordResult: the handled-request list is not capped at MAX_RESULTS')
+    if hub_cap and int(hub_cap.group(1)) > int(cap.group(1)):
+        err(f"MRB_MARAS.MAX_RESULTS {cap.group(1)} is below the Hub's MAX_REQUESTS {hub_cap.group(1)}: a listed request could lose its result")
+
+# ---- 7. every word a family tie is named by is known to IsCloseKind -------------------------------------------------
+# SpouseWord names the spouse "husband" or "wife", but IsCloseKind only knew "spouse": a widow was never told she grieves.
+
+family = next((s for s in own if s.name == 'MRB_Family'), None)
+if family and 'spouseword' in family.funcs and 'isclosekind' in family.funcs:
+    close_words = {w for _, l in family.funcs['isclosekind']['body'] for w in re.findall(r'asKind\s*==\s*"([^"]+)"', l)}
+    for n, l in family.funcs['spouseword']['body']:
+        for word in re.findall(r'Return\s+"([^"]+)"', l):
+            if word not in close_words:
+                err(f'MRB_Family.psc:{n}: SpouseWord returns "{word}", which IsCloseKind does not treat as close family')
+else:
+    err('MRB_Family.psc: SpouseWord or IsCloseKind not found')
+
+# ---- 8. words a handler acts on only by exact match come from the action file's enum ---------------------------------
+# ChangeAffection and ResolveMarriageCrisis took free text: "slightly warmer" or "reconciled" silently did nothing.
+
+maras = next((s for s in own if s.name == 'MRB_MARAS'), None)
+for ident, param, fname, var in (('mantella_maras_affection', 'change', 'changeaffection', 'asChange'),
+                                 ('mantella_maras_affection', 'amount', 'changeaffection', 'asAmount'),
+                                 ('mantella_maras_resolve_crisis', 'decision', 'resolvecrisis', 'decision')):
+    spec = ((actions.get(ident) or {}).get('parameters') or {}).get(param) or {}
+    words = {w for _, l in (maras.funcs.get(fname, {}).get('body', []) if maras else [])
+             for w in re.findall(var + r'\s*[!=]=\s*"([^"]+)"', l)}
+    if not words:
+        err(f'{ident}.{param}: MRB_MARAS.{fname} compares no words (check needs updating)')
+    elif not isinstance(spec.get('enum'), list):
+        err(f'{ident}.{param}: no enum, but MRB_MARAS acts only on {sorted(words)}')
+    elif not words <= set(spec['enum']):
+        err(f'{ident}.{param}: enum {spec["enum"]} lacks {sorted(words - set(spec["enum"]))}, which MRB_MARAS acts on')
+
+# ---- 9. no lock or retry loop waits under 0.1 s (a shorter wait is one frame at best, and 40 tries end far too soon) ---
+
+for s in own:
+    for n, l in s.lines:
+        m = re.search(r'Utility\.Wait(?:MenuMode)?\(\s*(\d*\.?\d+)\s*\)', l)
+        if m and float(m.group(1)) < 0.1:
+            err(f'{s.name}.psc:{n}: waits {m.group(1)} s; Papyrus waits under 0.1 s are not reliable')
+
+# ---- 10. a scene thread with a child gets no after-scene line or talk ------------------------------------------------
+# OnLedgerThreadData built "just finished having sex" for every partner: it must return on a child before the scene
+# counts (sceneToken), the running-talk line or StartTalk.
+
+ledger = next((s for s in own if s.name == 'MRB_Ledger'), None)
+body = ledger.funcs.get('onledgerthreaddata', {}).get('body', []) if ledger else []
+minor = next((i for i, (_, l) in enumerate(body) if re.search(r'\bIf\s+IsMinor\(actors\[i\]\)', l)), None)
+after = [i for i, (_, l) in enumerate(body) if re.search(r'sceneToken\s*\+=|AddMantellaEvent\(|StartTalk\(', l)]
+if minor is None:
+    err('MRB_Ledger.OnLedgerThreadData: no IsMinor(actors[i]) test on the scene\'s actors')
+elif not any(re.match(r'\s*Return\b', l) for _, l in body[minor + 1:minor + 4]):
+    err('MRB_Ledger.OnLedgerThreadData: the IsMinor(actors[i]) test does not return')
+elif not after or min(after) < minor:
+    err('MRB_Ledger.OnLedgerThreadData: the child test must come before sceneToken, AddMantellaEvent and StartTalk')
 
 # ---------------------------------------------------------------------------------------------------------------------
 

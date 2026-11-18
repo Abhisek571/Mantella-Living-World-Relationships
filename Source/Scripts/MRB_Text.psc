@@ -72,3 +72,59 @@ string Function ActName(string asAction) Global
 	EndIf
 	Return asAction
 EndFunction
+
+; A JSON string literal: quotes and backslashes escaped, for raw JSON written with JsonUtil.SetRawPathValue.
+string Function Quote(string asText) Global
+	If StringUtil.Find(asText, "\"") < 0 && StringUtil.Find(asText, "\\") < 0
+		Return "\"" + asText + "\""
+	EndIf
+	string out = "\""
+	int len = StringUtil.GetLength(asText)
+	int start = 0
+	int i = 0
+	While i < len
+		string c = StringUtil.GetNthChar(asText, i)
+		If c == "\"" || c == "\\"
+			If i > start  ; a length of 0 means "to the end" to Substring
+				out += StringUtil.Substring(asText, start, i - start)
+			EndIf
+			out += "\\" + c
+			start = i + 1
+		EndIf
+		i += 1
+	EndWhile
+	If start < len
+		out += StringUtil.Substring(asText, start)
+	EndIf
+	Return out + "\""
+EndFunction
+
+; The text without leading and trailing spaces and tabs.
+string Function Trim(string asText) Global
+	int start = 0
+	int stop = StringUtil.GetLength(asText)
+	While start < stop && (StringUtil.GetNthChar(asText, start) == " " || StringUtil.GetNthChar(asText, start) == "\t")
+		start += 1
+	EndWhile
+	While stop > start && (StringUtil.GetNthChar(asText, stop - 1) == " " || StringUtil.GetNthChar(asText, stop - 1) == "\t")
+		stop -= 1
+	EndWhile
+	If stop <= start
+		Return ""
+	EndIf
+	Return StringUtil.Substring(asText, start, stop - start)
+EndFunction
+
+; A form's FormID as its last 6 hex digits (uppercase), the id the Integration Hub names NPC files by.
+string Function Id6(int aiFormId) Global
+	string digits = "0123456789ABCDEF"
+	int v = aiFormId
+	string out = ""
+	int i = 0
+	While i < 6
+		out = StringUtil.GetNthChar(digits, Math.LogicalAnd(v, 15)) + out
+		v = Math.RightShift(v, 4)
+		i += 1
+	EndWhile
+	Return out
+EndFunction

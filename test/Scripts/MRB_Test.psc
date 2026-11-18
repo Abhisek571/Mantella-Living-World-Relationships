@@ -93,3 +93,40 @@ EndFunction
 Function Promote(Actor akNpc, string asStatus) global
 	Main().Promote(akNpc, asStatus)
 EndFunction
+
+; Writes the NPC's ties now (today's once-a-day mark cleared first) and returns what ties.json holds for them.
+string Function Ties(Actor akNpc) global
+	MRB_Family f = Game.GetFormFromFile(0x000806, "Mantella Living World - Relationships.esp") as MRB_Family
+	StorageUtil.UnsetIntValue(akNpc, "MRB_TiesDay")
+	f.WriteTies(akNpc, SKSE.GetPluginVersion("RelationsFinder") >= 0)
+	string file = "MantellaLivingWorld/ties.json"
+	string id = "." + MRB_Text.Id6(akNpc.GetActorBase().GetFormID())
+	string out = "name=" + JsonUtil.GetPathStringValue(file, id + ".name") + " home=" + JsonUtil.GetPathStringValue(file, id + ".home")
+	int count = JsonUtil.PathCount(file, id + ".ties")
+	int i = 0
+	While i < count
+		string row = id + ".ties[" + i + "]"
+		out += " | " + JsonUtil.GetPathStringValue(file, row + ".kind") + " " + JsonUtil.GetPathStringValue(file, row + ".base") \
+			+ " " + JsonUtil.GetPathStringValue(file, row + ".name")
+		i += 1
+	EndWhile
+	Return out
+EndFunction
+
+; Reads requests.json now, as at talk start, talk end and after a loading screen.
+Function Requests() global
+	Main().HandleRequests()
+EndFunction
+
+; The last marriages.json entry.
+string Function LastMarriage() global
+	string file = "MantellaLivingWorld/marriages.json"
+	int n = JsonUtil.PathCount(file, ".marriages")
+	If n <= 0
+		Return "(none)"
+	EndIf
+	string row = ".marriages[" + (n - 1) + "]"
+	Return JsonUtil.GetPathStringValue(file, row + ".base") + " " + JsonUtil.GetPathStringValue(file, row + ".name") + " " \
+		+ JsonUtil.GetPathStringValue(file, row + ".status") + " day=" + JsonUtil.GetPathFloatValue(file, row + ".day") \
+		+ " commanded=" + JsonUtil.GetPathIntValue(file, row + ".commanded")
+EndFunction

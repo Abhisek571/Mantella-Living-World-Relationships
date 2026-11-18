@@ -35,9 +35,18 @@ string Property KEY_SCORE_AT = "MRB_ScoreAt_" AutoReadOnly  ; + kind: game time 
 string Property PROFILES = "MantellaLivingWorld/profiles.json" AutoReadOnly  ; the Hub's "what wins them over" ratings
 int Property LIMIT_REACHED = 1000 AutoReadOnly
 float Property BREAKUP_DAYS = 7.0 AutoReadOnly  ; no proposal this long after a divorce or a called-off engagement
+; Files shared with the Integration Hub's server (game channel): status changes, its requests and their results.
+string Property MARRIAGES_FILE = "MantellaLivingWorld/marriages.json" AutoReadOnly
+string Property REQUESTS_FILE = "MantellaLivingWorld/requests.json" AutoReadOnly
+string Property RESULTS_FILE = "MantellaLivingWorld/request_results.json" AutoReadOnly
+string Property FLAGS_FILE = "MantellaLivingWorld/npc_flags.json" AutoReadOnly  ; the Hub's per-NPC switches
+string Property KEY_REQUESTS_DONE = "MRB_RequestsDone" AutoReadOnly
+int Property MAX_RESULTS = 50 AutoReadOnly  ; results kept in request_results.json (the Hub keeps its newest 50 requests)
 
 bool maras2x = false  ; set by ProbeMaras when an NPC joins a talk
 bool scoring = false  ; one score change at a time, see LockScore
+float handlingAt = -1.0  ; real time the current pass over the Hub's requests started (-1: none)
+bool logging = false  ; one marriages.json append at a time
 
 Event OnInit()
 	Register()
@@ -59,7 +68,15 @@ Function Register()
 	RegisterForModEvent("maras_status_changed", "OnMarasStatusChanged")
 	RegisterForModEvent("MLW_ScoreEvent", "OnScoreEvent")
 	RegisterForModEvent("MLW_Cheat", "OnCheat")
+	RegisterForModEvent("MantellaConversation_Started", "OnTalkStarted")
+	RegisterForModEvent("MantellaConversation_Ended", "OnTalkEnded")
+	RegisterForMenu("Loading Menu")  ; closes after every game load (and door): when the Hub's requests are read
+	registeredVersion = REGISTER_VERSION
 EndFunction
+
+; Raised when Register() gains an event: a join re-registers only on a save made before that, not on every join.
+int Property REGISTER_VERSION = 2 AutoReadOnly
+int registeredVersion = 0
 
 ; The Integration Hub MCM's cheats page (testing): a M.A.R.A.S status (0 candidate, 1 engaged, 2 married) or affection
 ; for the target; "reset" puts back the affection from before the first cheat, but only while the score is still the
@@ -243,8 +260,12 @@ bool Function Tracked(Actor akNpc)
 EndFunction
 
 Event OnNpcAdded(Form akActor)
-	; Saves made before these actions existed only registered this event.
-	Register()
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_MARAS,OnNpcAdded_start,\n", true, false)
+	EndIf
+	If registeredVersion != REGISTER_VERSION
+		Register()  ; saves made before these actions existed only registered this event
+	EndIf
 	Actor npc = akActor as Actor
 	If !npc || npc == PlayerRef
 		Return
@@ -253,8 +274,10 @@ Event OnNpcAdded(Form akActor)
 		; The NPC's file is shared by every save: drop the gates and wedding fact another save wrote.
 		string path = DIR + BaseId(npc) + ".json"
 		If JsonUtil.HasStringValue(path, FACT_WEDDING) || JsonUtil.GetIntValue(path, "maras") != 0 \
-			|| JsonUtil.GetIntValue(path, "maras_tracked") != 0 || JsonUtil.GetIntValue(path, "maras_on") != 0
+			|| JsonUtil.GetIntValue(path, "maras_tracked") != 0 || JsonUtil.GetIntValue(path, "maras_on") != 0 			|| JsonUtil.HasStringValue(path, "maras_status") || JsonUtil.HasStringValue(path, "marriage_note")
 			JsonUtil.UnsetStringValue(path, FACT_WEDDING)
+			JsonUtil.UnsetStringValue(path, "maras_status")
+			JsonUtil.UnsetStringValue(path, "marriage_note")
 			JsonUtil.SetIntValue(path, "maras", 0)
 			JsonUtil.SetIntValue(path, "maras_tracked", 0)
 			JsonUtil.SetIntValue(path, "maras_on", 0)
@@ -287,8 +310,6 @@ Event OnNpcAdded(Form akActor)
 			crisis.SetStage(10)
 		EndIf
 	EndIf
-	JsonUtil.Unload(PROFILES, false, false)  ; the Hub may have rated someone since the last talk: Load alone keeps the old copy
-	JsonUtil.Load(PROFILES)
 	; Mantella sends this once per NPC per talk. 0.11.1 never adds daily points, so it has no use for this.
 	If maras2x && Tracked(npc)
 		MRB_MarasCalls2x.CountTalk(npc)
@@ -307,25 +328,35 @@ Event OnNpcAdded(Form akActor)
 	If odds != ""
 		AddMantellaEvent(odds)
 	EndIf
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_MARAS,OnNpcAdded_end,\n", true, false)
+	EndIf
 EndEvent
 
 ; M.A.R.A.S 0.11.1 offers courtship only to the opposite sex by default (MCM: Show start dialogue to genders, global
-; TTM_MCM_StartDialGender, 0 = opposite). Said once per NPC, for a friend or closer of the player's own sex whom
-; M.A.R.A.S does not track, so the talk knows why nothing romantic can come of it. 2.x keeps that setting in its own
-; settings file: not read there (the README says where to change it).
+; TTM_MCM_StartDialGender, 0 = opposite). For a friend or closer of the player's own sex whom M.A.R.A.S does not track,
+; the note why nothing can come of a marriage is kept in the NPC's file ("marriage_note"), not sent as an event: the
+; Integration Hub adds it only when the player speaks of marrying or proposing, so it is not noise in every talk.
+; 2.x keeps that setting in its own settings file: not read there (the README says where to change it). Returns "".
 string Function SameSexLine(Actor akNpc, string asName)
-	If maras2x || Tracked(akNpc) || StorageUtil.GetIntValue(akNpc, "MRB_SameSexNoted") == 1 \
-		|| akNpc.GetRelationshipRank(PlayerRef) < 1 || akNpc.GetActorBase().GetSex() != PlayerRef.GetActorBase().GetSex() \
-		|| IsMinor(akNpc)
-		Return ""
+	string path = DIR + BaseId(akNpc) + ".json"
+	string note = ""
+	If !maras2x && !Tracked(akNpc) && akNpc.GetRelationshipRank(PlayerRef) >= 1 		&& akNpc.GetActorBase().GetSex() == PlayerRef.GetActorBase().GetSex() && !IsMinor(akNpc)
+		GlobalVariable genders = Game.GetFormFromFile(0x4B, MARAS_ESP) as GlobalVariable  ; TTM_MCM_StartDialGender
+		If genders && genders.GetValueInt() == 0
+			; Only marriage courting: worded so a friend's hug or other affection is not read as forbidden too.
+			note = asName + " cannot be courted for marriage through M.A.R.A.S, which is set to opposite-sex only; friendship and other affection are not affected."
+		EndIf
 	EndIf
-	GlobalVariable genders = Game.GetFormFromFile(0x4B, MARAS_ESP) as GlobalVariable  ; TTM_MCM_StartDialGender
-	If !genders || genders.GetValueInt() != 0
-		Return ""
+	If JsonUtil.GetStringValue(path, "marriage_note", "") != note
+		If note != ""
+			JsonUtil.SetStringValue(path, "marriage_note", note)
+		Else
+			JsonUtil.UnsetStringValue(path, "marriage_note")
+		EndIf
+		JsonUtil.Save(path)
 	EndIf
-	StorageUtil.SetIntValue(akNpc, "MRB_SameSexNoted", 1)
-	; Only marriage courting: worded so a friend's hug or other affection is not read as forbidden too.
-	Return asName + " cannot be courted for marriage through M.A.R.A.S, which is set to opposite-sex only; friendship and other affection are not affected."
+	Return ""
 EndFunction
 
 ; Mantella also sends NPC_Added for radiant talks between NPCs; those get no lines and count no talk.
@@ -525,6 +556,7 @@ Function WriteGate(Actor akNpc)
 	string path = DIR + BaseId(akNpc) + ".json"
 	int gate = GateValue(akNpc)
 	bool unique = akNpc.GetActorBase().IsUnique()
+	string before = GateSnapshot(path)  ; saved only when a value changed: this runs on every join
 	If unique
 		JsonUtil.SetIntValue(path, "maras", gate)
 	Else
@@ -533,16 +565,36 @@ Function WriteGate(Actor akNpc)
 	JsonUtil.SetIntValue(path, "maras_on", 1)  ; gates the spouses action: only offered with M.A.R.A.S installed
 	JsonUtil.SetIntValue(path, "maras_tracked", (unique && Tracked(akNpc) && !CrisisRunning(akNpc)) as int)  ; gates the affection action
 	WriteWeddingFact(akNpc, path)
-	JsonUtil.Save(path)
 	string status = MARAS.GetNpcStatusName(akNpc)
-	StorageUtil.SetIntValue(akNpc, "MRB_Close", (gate >= 2 || status == "Dating" || status == "Lover") as int)
-	int handle = ModEvent.Create("MLW_RefreshNpc")
-	If handle
-		ModEvent.PushForm(handle, akNpc)
-		ModEvent.Send(handle)
+	; the status name with the player (Married, Engaged, Dating, Lover, ...), for the Hub's Characters page
+	; facts; a generic NPC shares the file with every actor of that base, so theirs stays empty
+	If unique
+		JsonUtil.SetStringValue(path, "maras_status", status)
+	Else
+		JsonUtil.SetStringValue(path, "maras_status", "")
+	EndIf
+	If GateSnapshot(path) != before
+		JsonUtil.Save(path)
+	EndIf
+	int close = (gate >= 2 || status == "Dating" || status == "Lover") as int
+	bool changed = StorageUtil.GetIntValue(akNpc, "MRB_Close", -1) != close || StorageUtil.GetIntValue(akNpc, "MRB_GateSent", -1) != gate
+	StorageUtil.SetIntValue(akNpc, "MRB_Close", close)
+	If changed  ; the Hub rewrites its part of the file only when what it reads from here changed
+		StorageUtil.SetIntValue(akNpc, "MRB_GateSent", gate)
+		int handle = ModEvent.Create("MLW_RefreshNpc")
+		If handle
+			ModEvent.PushForm(handle, akNpc)
+			ModEvent.Send(handle)
+		EndIf
 	EndIf
 EndFunction
 
+; The values WriteGate writes, as one string to compare before and after.
+string Function GateSnapshot(string asPath)
+	Return JsonUtil.GetIntValue(asPath, "maras", -1) + "|" + JsonUtil.GetIntValue(asPath, "maras_on", -1) + "|" + JsonUtil.GetIntValue(asPath, "maras_tracked", -1) \
+		+ "|" + JsonUtil.HasStringValue(asPath, "maras_status") + "|" + JsonUtil.GetStringValue(asPath, "maras_status") \
+		+ "|" + JsonUtil.HasStringValue(asPath, FACT_WEDDING) + "|" + JsonUtil.GetStringValue(asPath, FACT_WEDDING)
+EndFunction
 ; The wedding date of a spouse whose wedding this script saw. The Hub adds "(N days ago)" after the text, so the last
 ; sentence is the one about the wedding day. No countdown: the file is shared by every save and may be read days later.
 Function WriteWeddingFact(Actor akNpc, string asPath)
@@ -578,9 +630,237 @@ Event OnMarasStatusChanged(string asEventName, string asStatus, float afStatusEn
 	; Every change with the player (an ex is no longer close) is written now: the Hub and Arousal read MRB_Close as
 	; the next talk starts, before this script's own WriteGate runs. Ties between other NPCs are left alone.
 	If Tracked(npc) || StorageUtil.GetIntValue(npc, "MRB_Close", 0) > 0
+		; On 2.x the event can be about a tie with another NPC: only a status that is now the one with the player is logged.
+		If asStatus != "" && asStatus == MARAS.GetNpcStatusName(npc)
+			LogMarriage(npc, asStatus)
+		EndIf
 		WriteGate(npc)
 	EndIf
 EndEvent
+
+; Appends {base, name, status, day, commanded, player} to marriages.json for the Hub's server. commanded is 1 when an
+; absolute command from the Integration Hub was in force on the NPC at that moment.
+Function LogMarriage(Actor akNpc, string asStatus)
+	float now = Utility.GetCurrentGameTime()
+	string raw = "{\"base\":\"" + BaseId(akNpc) + "\",\"name\":" + MRB_Text.Quote(akNpc.GetDisplayName()) \
+		+ ",\"status\":" + MRB_Text.Quote(asStatus) + ",\"day\":" + now + ",\"commanded\":" + (Commanded(akNpc) as int) \
+		+ ",\"player\":" + MRB_Text.Quote(PlayerRef.GetDisplayName()) + "}"
+	int tries = 0
+	While logging && tries < 40
+		Utility.WaitMenuMode(0.1)
+		tries += 1
+	EndWhile
+	logging = true
+	If !JsonUtil.IsPathArray(MARRIAGES_FILE, ".marriages")
+		JsonUtil.SetRawPathValue(MARRIAGES_FILE, ".marriages", "[]")
+	EndIf
+	int n = JsonUtil.PathCount(MARRIAGES_FILE, ".marriages")
+	If n < 0
+		n = 0
+	EndIf
+	If JsonUtil.SetRawPathValue(MARRIAGES_FILE, ".marriages[" + n + "]", raw)
+		JsonUtil.Save(MARRIAGES_FILE)
+	EndIf
+	logging = false
+EndFunction
+
+; The Integration Hub's absolute command (MLW_CommandUntil on the NPC, set by the Hub's MLW_Command; the same test as
+; its MLW_Channel.Commanded), read here without calling the Hub's scripts.
+bool Function Commanded(Actor akNpc)
+	Return StorageUtil.GetFloatValue(akNpc, "MLW_CommandUntil", 0.0) > Utility.GetCurrentGameTime() \
+		&& JsonUtil.GetIntValue(FLAGS_FILE, akNpc.GetDisplayName() + "|ignore_commands", 0) != 1
+EndFunction
+
+; ---- Requests from the Integration Hub's server (requests.json -> request_results.json) ----
+
+Event OnTalkStarted()
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_MARAS,OnTalkStarted_start,\n", true, false)
+	EndIf
+	HandleRequests()
+	; once per talk, not per join: the Hub may have rated someone since the last talk (Load alone keeps the old copy);
+	; the ratings are read by score events (OnScoreEvent)
+	JsonUtil.Unload(PROFILES, false, false)
+	JsonUtil.Load(PROFILES)
+	If StorageUtil.GetIntValue(None, "MLW_TimingOn", 0) == 1  ; speed testing (off by default): one stage-time row
+		MiscUtil.WriteToFile("Data/SKSE/Plugins/StorageUtilData/MantellaLivingWorld/timing_game.csv", StorageUtil.GetIntValue(None, "MLW_TimingTalk", 0) + "," + Utility.GetCurrentRealTime() + ",MRB_MARAS,OnTalkStarted_end,\n", true, false)
+	EndIf
+EndEvent
+
+Event OnTalkEnded()
+	HandleRequests()
+EndEvent
+
+Event OnMenuClose(string asMenuName)
+	If asMenuName == "Loading Menu"
+		HandleRequests()
+	EndIf
+EndEvent
+
+; Each request id is handled once: asked here (not through Confirm, so the once-a-day limit never swallows it) and its
+; result appended to request_results.json. Read at talk start, talk end and after loading screens; no polling.
+Function HandleRequests()
+	; One pass at a time. Real time starts at 0 each game start, so a value saved mid-pass never blocks a later session.
+	float now = Utility.GetCurrentRealTime()
+	If (handlingAt >= 0.0 && now >= handlingAt && now - handlingAt < 60.0) || !JsonUtil.JsonExists(REQUESTS_FILE)
+		Return
+	EndIf
+	handlingAt = now
+	JsonUtil.Unload(REQUESTS_FILE, false, false)  ; the server rewrites it: Load alone keeps the old copy
+	JsonUtil.Load(REQUESTS_FILE)
+	int count = JsonUtil.PathCount(REQUESTS_FILE, ".requests")
+	int i = 0
+	While i < count
+		string row = ".requests[" + i + "]"
+		bool numeric = JsonUtil.IsPathNumber(REQUESTS_FILE, row + ".id")
+		string id = JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".id")
+		If numeric
+			id = JsonUtil.GetPathIntValue(REQUESTS_FILE, row + ".id") as string
+		EndIf
+		; ForOtherPlayer before RequestDone, which marks a found id done: another character's request stays open for them
+		If id != "" && JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".kind") == "end_marriage" && !ForOtherPlayer(row) && !RequestDone(id)
+			StorageUtil.StringListAdd(None, KEY_REQUESTS_DONE, id)  ; before the box: a later pass never asks twice
+			string result = EndMarriage(JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".base"), \
+				JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".name"), JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".why"))
+			RecordResult(id, numeric, result)
+		EndIf
+		i += 1
+	EndWhile
+	JsonUtil.Unload(REQUESTS_FILE, false, false)  ; never written from here
+	handlingAt = -1.0
+EndFunction
+
+; The row names another player character ("player", written by the Hub). Rows without one are for every save.
+; Papyrus compares strings without case.
+bool Function ForOtherPlayer(string asRow)
+	If !JsonUtil.IsPathString(REQUESTS_FILE, asRow + ".player")
+		Return false
+	EndIf
+	string name = MRB_Text.Trim(JsonUtil.GetPathStringValue(REQUESTS_FILE, asRow + ".player"))
+	Return name != "" && name != MRB_Text.Trim(PlayerRef.GetDisplayName())
+EndFunction
+
+; Handled in this save, or a result for it is in the file (handled in another save, or before a reload).
+bool Function RequestDone(string asId)
+	If StorageUtil.StringListFind(None, KEY_REQUESTS_DONE, asId) >= 0
+		Return true
+	EndIf
+	JsonUtil.Unload(RESULTS_FILE, false, false)
+	JsonUtil.Load(RESULTS_FILE)
+	int count = JsonUtil.PathCount(RESULTS_FILE, ".results")
+	int i = 0
+	While i < count
+		string row = ".results[" + i + "]"
+		string id = JsonUtil.GetPathStringValue(RESULTS_FILE, row + ".id")
+		If JsonUtil.IsPathNumber(RESULTS_FILE, row + ".id")
+			id = JsonUtil.GetPathIntValue(RESULTS_FILE, row + ".id") as string
+		EndIf
+		If id == asId
+			MarkRequestDone(asId)  ; found once per save: later passes stop at the list above, not this file
+			Return true
+		EndIf
+		i += 1
+	EndWhile
+	Return false
+EndFunction
+
+; Adds the id to this save's handled list, which keeps the newest MAX_RESULTS.
+Function MarkRequestDone(string asId)
+	If StorageUtil.StringListFind(None, KEY_REQUESTS_DONE, asId) < 0
+		StorageUtil.StringListAdd(None, KEY_REQUESTS_DONE, asId)
+	EndIf
+	While StorageUtil.StringListCount(None, KEY_REQUESTS_DONE) > MAX_RESULTS
+		StorageUtil.StringListRemoveAt(None, KEY_REQUESTS_DONE, 0)
+	EndWhile
+EndFunction
+
+; Appends {id, result} to request_results.json; the id keeps its type (string or number) from the request.
+Function RecordResult(string asId, bool abNumeric, string asResult)
+	MarkRequestDone(asId)
+	string id = MRB_Text.Quote(asId)
+	If abNumeric
+		id = asId
+	EndIf
+	JsonUtil.Unload(RESULTS_FILE, false, false)
+	JsonUtil.Load(RESULTS_FILE)
+	If !JsonUtil.IsPathArray(RESULTS_FILE, ".results")
+		JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", "[]")
+	EndIf
+	int n = JsonUtil.PathCount(RESULTS_FILE, ".results")
+	If n < 0
+		n = 0
+	EndIf
+	string row = "{\"id\":" + id + ",\"result\":\"" + asResult + "\"}"
+	If n < MAX_RESULTS
+		JsonUtil.SetRawPathValue(RESULTS_FILE, ".results[" + n + "]", row)
+	Else
+		; only the newest MAX_RESULTS are kept: written again as one array, the oldest left out
+		string kept = "["
+		int i = n - MAX_RESULTS + 1
+		While i < n
+			string at = ".results[" + i + "]"
+			string oldId = MRB_Text.Quote(JsonUtil.GetPathStringValue(RESULTS_FILE, at + ".id"))
+			If JsonUtil.IsPathNumber(RESULTS_FILE, at + ".id")
+				oldId = JsonUtil.GetPathIntValue(RESULTS_FILE, at + ".id") as string
+			EndIf
+			kept += "{\"id\":" + oldId + ",\"result\":" + MRB_Text.Quote(JsonUtil.GetPathStringValue(RESULTS_FILE, at + ".result")) + "},"
+			i += 1
+		EndWhile
+		JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")
+	EndIf
+	JsonUtil.Save(RESULTS_FILE)
+	JsonUtil.Unload(RESULTS_FILE, false, false)
+EndFunction
+
+; One box for an end_marriage request; on yes the same M.A.R.A.S divorce as the divorce action. "done", "refused"
+; (the player said no) or "not_possible" (no M.A.R.A.S, not married to the player now, dead, or in a marriage crisis,
+; which M.A.R.A.S settles through its own quest).
+string Function EndMarriage(string asBase, string asName, string asWhy)
+	If !MarasLoaded() || asBase == ""
+		Return "not_possible"
+	EndIf
+	ProbeMaras()
+	Actor npc = SpouseByBase(asBase)
+	If !npc || npc.IsDead() || CrisisRunning(npc)
+		Return "not_possible"
+	EndIf
+	string name = npc.GetDisplayName()
+	If name == ""
+		name = asName
+	EndIf
+	string text = "Divorce (M.A.R.A.S): end your marriage to " + name + "?"
+	If asWhy != ""
+		text += "\n\n" + asWhy
+	EndIf
+	If SkyMessage.Show(text, "Yes", "No") != "Yes"
+		Return "refused"
+	ElseIf !DivorceNow(npc)
+		Return "not_possible"
+	EndIf
+	WriteGate(npc)
+	If PlayerInTalk()
+		AddMantellaEvent("The player ended their marriage to " + name + ".")
+	EndIf
+	Return "done"
+EndFunction
+
+; The player's spouse (M.A.R.A.S) whose base record has this 6-hex id (a full 8-hex id is cut to its last 6).
+Actor Function SpouseByBase(string asBase)
+	string id = asBase
+	int len = StringUtil.GetLength(id)
+	If len > 6
+		id = StringUtil.Substring(id, len - 6)
+	EndIf
+	Actor[] spouses = MARAS.GetNPCsByStatus("married")
+	int i = 0
+	While spouses && i < spouses.Length
+		If spouses[i] && BaseId(spouses[i]) == id
+			Return spouses[i]
+		EndIf
+		i += 1
+	EndWhile
+	Return None
+EndFunction
 
 ; "17 Last Seed", from the game's GameDay and GameMonth (0 is Morning Star).
 string Function TodaysDate()
@@ -728,11 +1008,12 @@ EndFunction
 
 ; Events run side by side, and each call into M.A.R.A.S lets another one in on this script: two changes at once (a
 ; gift and the action in one reply) would both read the same total and score. Call before reading them, and set
-; scoring to false right after; gives up waiting after about 2 seconds rather than hold anything up for good.
+; scoring to false right after; gives up waiting after about 4 seconds rather than hold anything up for good (a wait
+; under 0.1 s is one frame at best).
 Function LockScore()
 	int tries = 0
 	While scoring && tries < 40
-		Utility.WaitMenuMode(0.05)
+		Utility.WaitMenuMode(0.1)
 		tries += 1
 	EndWhile
 	scoring = true
@@ -854,9 +1135,9 @@ Function ResolveCrisis(Actor npc, string decision)
 		Return
 	EndIf
 	string name = npc.GetDisplayName()
-	string ask = name + " wants to stay married. Reconcile?"
+	string ask = "Marriage crisis (M.A.R.A.S): " + name + " wants to stay married. Reconcile?"
 	If decision == "divorce"
-		ask = name + " wants a divorce. Accept it?"
+		ask = "Divorce (M.A.R.A.S): " + name + " wants a divorce. Accept it?"
 	EndIf
 	; On M.A.R.A.S 2.x, stage 200 shows its own box when these settings are on: one box is enough.
 	bool marasAsks = decision == "divorce" && maras2x && MRB_MarasCalls2x.AsksBeforeCrisisDivorce()
@@ -894,7 +1175,7 @@ Function Accept(Actor akNpc)
 	If StorageUtil.GetIntValue(akNpc, "MRB_ProposalRoll") == 0
 		AddMantellaEvent(akNpc.GetDisplayName() + " is not ready to say yes to a proposal today.")
 		Return
-	ElseIf !Confirm("accept", akNpc, akNpc.GetDisplayName() + " accepted your proposal. Get engaged?")
+	ElseIf !Confirm("accept", akNpc, "Engagement (M.A.R.A.S): " + akNpc.GetDisplayName() + " accepted your proposal. Get engaged?")
 		Return
 	EndIf
 	Promote(akNpc, "engaged")
@@ -911,7 +1192,7 @@ Function Break(Actor akNpc)
 	ElseIf !MARAS.IsNPCStatus(akNpc, "engaged")
 		NothingChanged(akNpc)
 		Return
-	ElseIf !Confirm("break", akNpc, akNpc.GetDisplayName() + " wants to call off the engagement. Accept it?")
+	ElseIf !Confirm("break", akNpc, "Engagement (M.A.R.A.S): " + akNpc.GetDisplayName() + " wants to call off your engagement. Accept it?")
 		Return
 	EndIf
 	Promote(akNpc, "jilted")
@@ -929,15 +1210,19 @@ Function Divorce(Actor akNpc)
 	ElseIf !MARAS.IsNPCStatus(akNpc, "married") || CrisisRunning(akNpc)
 		NothingChanged(akNpc)
 		Return
-	ElseIf !Confirm("divorce", akNpc, akNpc.GetDisplayName() + " wants a divorce. Accept it?")
+	ElseIf !Confirm("divorce", akNpc, "Divorce (M.A.R.A.S): " + akNpc.GetDisplayName() + " wants a divorce. Accept it?")
 		Return
-	EndIf
-	Promote(akNpc, "divorced")
-	If !MARAS.IsNPCStatus(akNpc, "divorced")
+	ElseIf !DivorceNow(akNpc)
 		NothingChanged(akNpc)
 		Return
 	EndIf
 	Done(akNpc, akNpc.GetDisplayName() + " divorced the player.")
+EndFunction
+
+; The M.A.R.A.S divorce shared by the divorce action and the Hub's end_marriage request. False when M.A.R.A.S refused.
+bool Function DivorceNow(Actor akNpc)
+	Promote(akNpc, "divorced")
+	Return MARAS.IsNPCStatus(akNpc, "divorced")
 EndFunction
 
 ; The NPC may already have said it aloud; the talk should know it did not happen.
