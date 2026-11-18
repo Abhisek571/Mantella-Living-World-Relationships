@@ -21,6 +21,8 @@ float Property TALK_DISTANCE = 1500.0 AutoReadOnly
 int Property MAX_LOVERS = 3 AutoReadOnly
 int Property MAX_ACTS = 3 AutoReadOnly
 
+int sceneToken = 0  ; raised for every scene with the player: only the newest after-scene wait opens a talk
+
 Event OnInit()
 	Register()
 EndEvent
@@ -180,6 +182,10 @@ Event OnLedgerThreadData(int aiThreadID)
 	int i = 0
 	While i < actors.Length
 		If actors[i] && actors[i] != PlayerRef
+			If IsMinor(actors[i])  ; no line and no talk for a thread with a child
+				NotStarted(actors[i], "a child is in the scene")
+				Return
+			EndIf
 			count += 1
 			If !first
 				first = actors[i]
@@ -190,6 +196,7 @@ Event OnLedgerThreadData(int aiThreadID)
 	If !first
 		Return
 	EndIf
+	sceneToken += 1
 	i = 0
 	int named = 0
 	While i < actors.Length
@@ -207,7 +214,7 @@ Event OnLedgerThreadData(int aiThreadID)
 			AddMantellaEvent(line)
 		EndIf
 	ElseIf MRB_AfterSceneTalk.GetValueInt() == 1
-		StartTalk(first, line)
+		StartTalk(first, line, sceneToken)
 	Else
 		NotStarted(first, "the setting is off (MRB_AfterSceneTalk 0)")
 	EndIf
@@ -222,7 +229,7 @@ EndFunction
 ; same as the player starting a conversation. Mantella reads queued in-game
 ; events when it builds the opening context, so the partner's first line can
 ; react to the scene.
-Function StartTalk(Actor akPartner, string asLine)
+Function StartTalk(Actor akPartner, string asLine, int aiToken)
 	Spell mantellaSpell = Game.GetFormFromFile(0x0022EF, "Mantella.esp") as Spell
 	If !mantellaSpell
 		NotStarted(akPartner, "Mantella's conversation spell was not found")
@@ -247,8 +254,10 @@ Function StartTalk(Actor akPartner, string asLine)
 			quiet += 1.0
 		EndIf
 	EndWhile
-	; the player went on with something else: no talk is opened
-	If quiet < QUIET_SECONDS
+	If aiToken != sceneToken  ; a later scene's wait opens the talk with its own line
+		NotStarted(akPartner, "a newer scene came first")
+		Return
+	ElseIf quiet < QUIET_SECONDS  ; the player went on with something else: no talk is opened
 		NotStarted(akPartner, "timed out after " + (MAX_WAIT_SECONDS as int) + " s in dialogue, a scene or a talk")
 		Return
 	ElseIf akPartner.IsDead() || akPartner.IsInCombat()

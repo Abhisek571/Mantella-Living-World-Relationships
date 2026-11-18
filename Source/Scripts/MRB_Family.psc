@@ -243,6 +243,7 @@ Function WriteTies(Actor akNpc, bool abFinder)
 		n = AddActors(kinds, bases, names, n, "works_for", TTRF_RelationsFinder.GetNpcRelationships(akNpc, "BossEmployee", "primary"))
 		n = AddActors(kinds, bases, names, n, "employs", TTRF_RelationsFinder.GetNpcRelationships(akNpc, "BossEmployee", "secondary"))
 		n = AddActors(kinds, bases, names, n, "enemy", TTRF_RelationsFinder.GetNpcRelationships(akNpc, "", "any", -4, -3))
+		n = AddActors(kinds, bases, names, n, "enemy", TTRF_RelationsFinder.GetNpcRelationships(akNpc, "", "any", -4, -4))  ; the exact rank wins: -4 needs its own call
 	EndIf
 	If po3
 		n = AddBases(kinds, bases, names, n, "spouse", PO3_SKSEFunctions.GetRelationships(base, Association(0x0142CA)))

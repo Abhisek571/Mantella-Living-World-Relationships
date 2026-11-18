@@ -28,6 +28,13 @@ Every change to Mantella Living World - Relationships. The Nexus page lists only
 - A husband or wife who died or was struck is now grieved and mentioned like other close family.
 - The talk opened after a scene no longer gets the scene line twice when OStim Expansion is installed.
 - M.A.R.A.S asks the Integration Hub to update an NPC's file only when the standing changed, and registers its events only once.
+- Two scenes close together no longer open two after-scene talks: only the newest scene's talk is opened, with its own line.
+- With M.A.R.A.S removed from a save, the note on courting an NPC of your own sex is also cleared from the NPC's file.
+- A divorce request already answered in another save is no longer looked up again after every loading screen.
+- An NPC's file is saved when a talk starts only if their M.A.R.A.S values changed.
+- A request made for one character no longer shows up in another character's game.
+- No after-scene line or talk is made for a scene that has a child in it.
+- Sworn enemies (the lowest relationship rank) are now written as enemies in an NPC's family ties, not only plain enemies.
 
 ## 1.2.0 (2026-11-09)
 
