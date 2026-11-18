@@ -274,9 +274,10 @@ Event OnNpcAdded(Form akActor)
 		; The NPC's file is shared by every save: drop the gates and wedding fact another save wrote.
 		string path = DIR + BaseId(npc) + ".json"
 		If JsonUtil.HasStringValue(path, FACT_WEDDING) || JsonUtil.GetIntValue(path, "maras") != 0 \
-			|| JsonUtil.GetIntValue(path, "maras_tracked") != 0 || JsonUtil.GetIntValue(path, "maras_on") != 0 			|| JsonUtil.HasStringValue(path, "maras_status")
+			|| JsonUtil.GetIntValue(path, "maras_tracked") != 0 || JsonUtil.GetIntValue(path, "maras_on") != 0 			|| JsonUtil.HasStringValue(path, "maras_status") || JsonUtil.HasStringValue(path, "marriage_note")
 			JsonUtil.UnsetStringValue(path, FACT_WEDDING)
 			JsonUtil.UnsetStringValue(path, "maras_status")
+			JsonUtil.UnsetStringValue(path, "marriage_note")
 			JsonUtil.SetIntValue(path, "maras", 0)
 			JsonUtil.SetIntValue(path, "maras_tracked", 0)
 			JsonUtil.SetIntValue(path, "maras_on", 0)
@@ -555,6 +556,7 @@ Function WriteGate(Actor akNpc)
 	string path = DIR + BaseId(akNpc) + ".json"
 	int gate = GateValue(akNpc)
 	bool unique = akNpc.GetActorBase().IsUnique()
+	string before = GateSnapshot(path)  ; saved only when a value changed: this runs on every join
 	If unique
 		JsonUtil.SetIntValue(path, "maras", gate)
 	Else
@@ -571,7 +573,9 @@ Function WriteGate(Actor akNpc)
 	Else
 		JsonUtil.SetStringValue(path, "maras_status", "")
 	EndIf
-	JsonUtil.Save(path)
+	If GateSnapshot(path) != before
+		JsonUtil.Save(path)
+	EndIf
 	int close = (gate >= 2 || status == "Dating" || status == "Lover") as int
 	bool changed = StorageUtil.GetIntValue(akNpc, "MRB_Close", -1) != close || StorageUtil.GetIntValue(akNpc, "MRB_GateSent", -1) != gate
 	StorageUtil.SetIntValue(akNpc, "MRB_Close", close)
@@ -585,6 +589,12 @@ Function WriteGate(Actor akNpc)
 	EndIf
 EndFunction
 
+; The values WriteGate writes, as one string to compare before and after.
+string Function GateSnapshot(string asPath)
+	Return JsonUtil.GetIntValue(asPath, "maras", -1) + "|" + JsonUtil.GetIntValue(asPath, "maras_on", -1) + "|" + JsonUtil.GetIntValue(asPath, "maras_tracked", -1) \
+		+ "|" + JsonUtil.HasStringValue(asPath, "maras_status") + "|" + JsonUtil.GetStringValue(asPath, "maras_status") \
+		+ "|" + JsonUtil.HasStringValue(asPath, FACT_WEDDING) + "|" + JsonUtil.GetStringValue(asPath, FACT_WEDDING)
+EndFunction
 ; The wedding date of a spouse whose wedding this script saw. The Hub adds "(N days ago)" after the text, so the last
 ; sentence is the one about the wedding day. No countdown: the file is shared by every save and may be read days later.
 Function WriteWeddingFact(Actor akNpc, string asPath)
@@ -707,7 +717,8 @@ Function HandleRequests()
 		If numeric
 			id = JsonUtil.GetPathIntValue(REQUESTS_FILE, row + ".id") as string
 		EndIf
-		If id != "" && JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".kind") == "end_marriage" && !RequestDone(id)
+		; ForOtherPlayer before RequestDone, which marks a found id done: another character's request stays open for them
+		If id != "" && JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".kind") == "end_marriage" && !ForOtherPlayer(row) && !RequestDone(id)
 			StorageUtil.StringListAdd(None, KEY_REQUESTS_DONE, id)  ; before the box: a later pass never asks twice
 			string result = EndMarriage(JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".base"), \
 				JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".name"), JsonUtil.GetPathStringValue(REQUESTS_FILE, row + ".why"))
@@ -717,6 +728,16 @@ Function HandleRequests()
 	EndWhile
 	JsonUtil.Unload(REQUESTS_FILE, false, false)  ; never written from here
 	handlingAt = -1.0
+EndFunction
+
+; The row names another player character ("player", written by the Hub). Rows without one are for every save.
+; Papyrus compares strings without case.
+bool Function ForOtherPlayer(string asRow)
+	If !JsonUtil.IsPathString(REQUESTS_FILE, asRow + ".player")
+		Return false
+	EndIf
+	string name = MRB_Text.Trim(JsonUtil.GetPathStringValue(REQUESTS_FILE, asRow + ".player"))
+	Return name != "" && name != MRB_Text.Trim(PlayerRef.GetDisplayName())
 EndFunction
 
 ; Handled in this save, or a result for it is in the file (handled in another save, or before a reload).
@@ -735,6 +756,7 @@ bool Function RequestDone(string asId)
 			id = JsonUtil.GetPathIntValue(RESULTS_FILE, row + ".id") as string
 		EndIf
 		If id == asId
+			MarkRequestDone(asId)  ; found once per save: later passes stop at the list above, not this file
 			Return true
 		EndIf
 		i += 1
@@ -742,14 +764,19 @@ bool Function RequestDone(string asId)
 	Return false
 EndFunction
 
-; Appends {id, result} to request_results.json; the id keeps its type (string or number) from the request.
-Function RecordResult(string asId, bool abNumeric, string asResult)
+; Adds the id to this save's handled list, which keeps the newest MAX_RESULTS.
+Function MarkRequestDone(string asId)
 	If StorageUtil.StringListFind(None, KEY_REQUESTS_DONE, asId) < 0
 		StorageUtil.StringListAdd(None, KEY_REQUESTS_DONE, asId)
 	EndIf
 	While StorageUtil.StringListCount(None, KEY_REQUESTS_DONE) > MAX_RESULTS
 		StorageUtil.StringListRemoveAt(None, KEY_REQUESTS_DONE, 0)
 	EndWhile
+EndFunction
+
+; Appends {id, result} to request_results.json; the id keeps its type (string or number) from the request.
+Function RecordResult(string asId, bool abNumeric, string asResult)
+	MarkRequestDone(asId)
 	string id = MRB_Text.Quote(asId)
 	If abNumeric
 		id = asId

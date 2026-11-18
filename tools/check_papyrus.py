@@ -11,6 +11,7 @@ usage: py -3 tools/check_papyrus.py [-v]
   4. M.A.R.A.S 2.x natives that 0.11.1 lacks or declares differently are called only from MRB_MarasCalls2x (changed
      ones also from MRB_MarasCalls011)
   5. every action JSON parameter is read by its advanced handler, and the handler reads no undeclared parameter
+  6-10. results cap, close-family words, action enums, short waits, no after-scene line for a scene with a child
 
 Exit 1 on any error. Warnings are printed but do not fail.
 """
@@ -307,6 +308,9 @@ def close(a, b):
     return prev[-1] <= 2
 
 
+# distinct keys that only look like a typo: wares is the World module's trade key, maras this module's gate
+NEAR_MISS_OK = {frozenset(('maras', 'wares'))}
+
 ownkeys = [(lib, k) for (lib, k), v in keys.items() if v['own']]
 for lib, k in ownkeys:
     v = keys[(lib, k)]
@@ -323,7 +327,7 @@ for lib, k in ownkeys:
     if writes and not reads:
         warn(f'{lib} key {sorted(v["spell"])[0]} is written but never read in Living World sources (the Hub reads JSON files as data)')
     for lib2, k2 in keys:
-        if lib2 == lib and k2 > k and close(k, k2) and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
+        if lib2 == lib and k2 > k and close(k, k2) and frozenset((k, k2)) not in NEAR_MISS_OK and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
                                                         or bool(writes) != bool(keys[(lib2, k2)]['ops'].get('write'))):
             err(f'{lib} keys {k} and {k2} differ by a letter or two and one is only read or only written')
 
@@ -466,7 +470,8 @@ else:
     if 'If n < MAX_RESULTS' not in record or 'int i = n - MAX_RESULTS + 1' not in record \
             or 'JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")' not in record:
         err('MRB_MARAS.RecordResult: request_results.json is not trimmed to the newest MAX_RESULTS')
-    if '> MAX_RESULTS' not in record:
+    mark = re.search(r'^Function MarkRequestDone\(.*?^EndFunction', maras_src, re.M | re.S)
+    if '> MAX_RESULTS' not in record and not ('MarkRequestDone(asId)' in record and mark and '> MAX_RESULTS' in mark.group(0)):
         err('MRB_MARAS.RecordResult: the handled-request list is not capped at MAX_RESULTS')
     if hub_cap and int(hub_cap.group(1)) > int(cap.group(1)):
         err(f"MRB_MARAS.MAX_RESULTS {cap.group(1)} is below the Hub's MAX_REQUESTS {hub_cap.group(1)}: a listed request could lose its result")
@@ -508,6 +513,21 @@ for s in own:
         m = re.search(r'Utility\.Wait(?:MenuMode)?\(\s*(\d*\.?\d+)\s*\)', l)
         if m and float(m.group(1)) < 0.1:
             err(f'{s.name}.psc:{n}: waits {m.group(1)} s; Papyrus waits under 0.1 s are not reliable')
+
+# ---- 10. a scene thread with a child gets no after-scene line or talk ------------------------------------------------
+# OnLedgerThreadData built "just finished having sex" for every partner: it must return on a child before the scene
+# counts (sceneToken), the running-talk line or StartTalk.
+
+ledger = next((s for s in own if s.name == 'MRB_Ledger'), None)
+body = ledger.funcs.get('onledgerthreaddata', {}).get('body', []) if ledger else []
+minor = next((i for i, (_, l) in enumerate(body) if re.search(r'\bIf\s+IsMinor\(actors\[i\]\)', l)), None)
+after = [i for i, (_, l) in enumerate(body) if re.search(r'sceneToken\s*\+=|AddMantellaEvent\(|StartTalk\(', l)]
+if minor is None:
+    err('MRB_Ledger.OnLedgerThreadData: no IsMinor(actors[i]) test on the scene\'s actors')
+elif not any(re.match(r'\s*Return\b', l) for _, l in body[minor + 1:minor + 4]):
+    err('MRB_Ledger.OnLedgerThreadData: the IsMinor(actors[i]) test does not return')
+elif not after or min(after) < minor:
+    err('MRB_Ledger.OnLedgerThreadData: the child test must come before sceneToken, AddMantellaEvent and StartTalk')
 
 # ---------------------------------------------------------------------------------------------------------------------
 

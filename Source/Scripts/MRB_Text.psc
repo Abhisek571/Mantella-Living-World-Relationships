@@ -99,6 +99,22 @@ string Function Quote(string asText) Global
 	Return out + "\""
 EndFunction
 
+; The text without leading and trailing spaces and tabs.
+string Function Trim(string asText) Global
+	int start = 0
+	int stop = StringUtil.GetLength(asText)
+	While start < stop && (StringUtil.GetNthChar(asText, start) == " " || StringUtil.GetNthChar(asText, start) == "\t")
+		start += 1
+	EndWhile
+	While stop > start && (StringUtil.GetNthChar(asText, stop - 1) == " " || StringUtil.GetNthChar(asText, stop - 1) == "\t")
+		stop -= 1
+	EndWhile
+	If stop <= start
+		Return ""
+	EndIf
+	Return StringUtil.Substring(asText, start, stop - start)
+EndFunction
+
 ; A form's FormID as its last 6 hex digits (uppercase), the id the Integration Hub names NPC files by.
 string Function Id6(int aiFormId) Global
 	string digits = "0123456789ABCDEF"
