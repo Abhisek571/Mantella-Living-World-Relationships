@@ -2,7 +2,7 @@
 
 Every change to Mantella Living World - Relationships. The Nexus page lists only the main changes for each version.
 
-## Unreleased
+## 1.2.1 (2026-11-18)
 
 ### New
 - The NPC's M.A.R.A.S status (married, engaged, dating, lover) is written for the Integration Hub's NPCs page, so a partner is a fact the NPC never contradicts.
