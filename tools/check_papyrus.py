@@ -26,8 +26,13 @@ ACTIONS = os.path.join(ROOT, 'SKSE', 'Plugins', 'MantellaSoftware', 'data', 'act
 
 def mo2_mods():
     f = os.path.join(CODING, 'Mantella-Living-World-Hub', 'tools', 'local-paths.json')
-    mo2 = os.environ.get('MLW_MO2') or (json.load(open(f, encoding='utf-8')).get('mo2', '') if os.path.isfile(f) else '')
+    mo2 = os.environ.get('MLW_MO2') or (json.loads(read_text(f)).get('mo2', '') if os.path.isfile(f) else '')
     return os.path.join(mo2, 'mods') if mo2 else ''
+
+
+def read_text(path):
+    with open(path, encoding='utf-8') as f:
+        return f.read()
 
 
 MODS = mo2_mods()
@@ -67,7 +72,8 @@ class Script:
     def __init__(self, path):
         self.path = path
         self.name = os.path.splitext(os.path.basename(path))[0]
-        text = open(path, encoding='utf-8', errors='replace').read()
+        with open(path, encoding='utf-8', errors='replace') as f:
+            text = f.read()
         text = re.sub(r'\{[^}]*\}', lambda m: '\n' * m.group(0).count('\n'), text)  # doc comments
         text = re.sub(r';/.*?/;', lambda m: '\n' * m.group(0).count('\n'), text, flags=re.S)  # block comments
         raw = text.split('\n')
@@ -176,51 +182,56 @@ def load(dirs):
     return out
 
 
+# String properties of any loaded script, by name, when every script that declares one gives it the same value.
 GLOBAL_PROPS = {}
-own = load(OWN)
-others = load(SIBLINGS)
-external = load(EXTERNAL)
-_seen = {}
-for _s in own + others + external:
-    for _k, _v in _s.props.items():
-        _seen.setdefault(_k, set()).add(_v)
-GLOBAL_PROPS.update({k: next(iter(v)) for k, v in _seen.items() if len(v) == 1})  # only names with one value
-if not external:
-    warn('Mantella / M.A.R.A.S / Lover\'s Ledger sources not found: sender and 0.11.1 checks are partial')
+
+
+def fill_global_props(scripts):
+    seen = {}
+    for s in scripts:
+        for k, v in s.props.items():
+            seen.setdefault(k, set()).add(v)
+    GLOBAL_PROPS.update({k: next(iter(v)) for k, v in seen.items() if len(v) == 1})  # only names with one value
+
 
 # ---- 1. mod event handlers ------------------------------------------------------------------------------------------
 
 PUSH = {'pushform': 'form', 'pushstring': 'string', 'pushint': 'int', 'pushfloat': 'float', 'pushbool': 'bool'}
-senders = {}  # event name -> list of (types, where)
-for s in own + others + external:
-    for f in s.funcs.values():
-        body = f['body']
-        for i, (n, l) in enumerate(body):
-            m = re.search(r'ModEvent\.Create\(', l, re.I)
-            if not m:
-                continue
-            name = s.resolve(args_of(l, m.end() - 1)[0])
-            if len(name.replace('*', '')) < 3:
-                continue  # built from variables (Mantella's action names): PREFIX_SIGS covers those
-            types = []
-            for _, l2 in body[i + 1:]:
-                p = re.search(r'ModEvent\.(Push\w+)\(', l2, re.I)
-                if p:
-                    types.append(PUSH.get(p.group(1).lower(), p.group(1).lower()))
-                if re.search(r'ModEvent\.Send\(', l2, re.I):
-                    break
-            senders.setdefault(name, []).append((types, f'{s.name}:{n}'))
-# Events a native plugin sends: the signature of the sending mod's own handler for it.
-for s in external:
-    for f in s.funcs.values():
-        for n, l in f['body']:
-            m = re.search(r'RegisterForModEvent\(\s*("[^"]*")\s*,\s*"(\w+)"', l, re.I)
-            if m and s.resolve(m.group(1)) not in senders and m.group(2).lower() in s.funcs:
-                senders.setdefault(s.resolve(m.group(1)), []).append(
-                    (s.funcs[m.group(2).lower()]['types'], f'{s.name} handler {m.group(2)} (native sender)'))
 
 
-def sig_for(event):
+def find_senders(scripts, external):
+    """event name -> list of (pushed types, where), from every ModEvent.Create ... Send, plus the events a native
+    plugin sends (the signature of the sending mod's own handler for it)."""
+    senders = {}
+    for s in scripts:
+        for f in s.funcs.values():
+            body = f['body']
+            for i, (n, l) in enumerate(body):
+                m = re.search(r'ModEvent\.Create\(', l, re.I)
+                if not m:
+                    continue
+                name = s.resolve(args_of(l, m.end() - 1)[0])
+                if len(name.replace('*', '')) < 3:
+                    continue  # built from variables (Mantella's action names): PREFIX_SIGS covers those
+                types = []
+                for _, l2 in body[i + 1:]:
+                    p = re.search(r'ModEvent\.(Push\w+)\(', l2, re.I)
+                    if p:
+                        types.append(PUSH.get(p.group(1).lower(), p.group(1).lower()))
+                    if re.search(r'ModEvent\.Send\(', l2, re.I):
+                        break
+                senders.setdefault(name, []).append((types, f'{s.name}:{n}'))
+    for s in external:
+        for f in s.funcs.values():
+            for n, l in f['body']:
+                m = re.search(r'RegisterForModEvent\(\s*("[^"]*")\s*,\s*"(\w+)"', l, re.I)
+                if m and s.resolve(m.group(1)) not in senders and m.group(2).lower() in s.funcs:
+                    senders.setdefault(s.resolve(m.group(1)), []).append(
+                        (s.funcs[m.group(2).lower()]['types'], f'{s.name} handler {m.group(2)} (native sender)'))
+    return senders
+
+
+def sig_for(senders, event):
     if event in senders:
         return senders[event]
     for pre, sig in PREFIX_SIGS.items():
@@ -233,30 +244,34 @@ def sig_for(event):
     return None
 
 
-registered = {}  # (script, handler lower) -> [event]
-for s in own:
-    for f in s.funcs.values():
-        for n, l in f['body']:
-            m = re.search(r'(?<!Un)RegisterForModEvent\(', l, re.I)
-            if not m:
-                continue
-            a = args_of(l, m.end() - 1)
-            event, handler = s.resolve(a[0]), s.resolve(a[1])
-            registered.setdefault((s.name, handler.lower()), []).append(event)
-            h = s.funcs.get(handler.lower())
-            where = f'{s.name}.psc:{n}'
-            if not h:
-                err(f'{where}: handler {handler} for {event} does not exist')
-                continue
-            if h['kind'] != 'event':
-                err(f'{where}: handler {handler} is a Function, mod events call Events only')
-            sigs = sig_for(event)
-            if sigs is None:
-                warn(f'{where}: no sender found for {event}; handler {handler}({", ".join(h["types"])}) not checked')
-                continue
-            for types, src in sigs:
-                if types != h['types']:
-                    err(f'{where}: {handler}({", ".join(h["types"])}) but {src} sends {event} with ({", ".join(types)})')
+def check_mod_events(own, senders):
+    """Check 1. Returns (script, handler lower) -> [event] for every RegisterForModEvent in own scripts."""
+    registered = {}
+    for s in own:
+        for f in s.funcs.values():
+            for n, l in f['body']:
+                m = re.search(r'(?<!Un)RegisterForModEvent\(', l, re.I)
+                if not m:
+                    continue
+                a = args_of(l, m.end() - 1)
+                event, handler = s.resolve(a[0]), s.resolve(a[1])
+                registered.setdefault((s.name, handler.lower()), []).append(event)
+                h = s.funcs.get(handler.lower())
+                where = f'{s.name}.psc:{n}'
+                if not h:
+                    err(f'{where}: handler {handler} for {event} does not exist')
+                    continue
+                if h['kind'] != 'event':
+                    err(f'{where}: handler {handler} is a Function, mod events call Events only')
+                sigs = sig_for(senders, event)
+                if sigs is None:
+                    warn(f'{where}: no sender found for {event}; handler {handler}({", ".join(h["types"])}) not checked')
+                    continue
+                for types, src in sigs:
+                    if types != h['types']:
+                        err(f'{where}: {handler}({", ".join(h["types"])}) but {src} sends {event} with ({", ".join(types)})')
+    return registered
+
 
 # ---- 2. StorageUtil / JsonUtil keys ---------------------------------------------------------------------------------
 
@@ -283,16 +298,19 @@ def key_use(s, l):
         yield lib.lower(), s.resolve(a[1]), typ, op
 
 
-keys = {}  # (lib, key lower) -> dict(spellings, types per op, where)
-for s in own + others:
-    mine = s in own
-    for n, l in s.lines:
-        for lib, key, typ, op in key_use(s, l):
-            k = keys.setdefault((lib, key.lower()), dict(spell=set(), ops={}, own=False, where=[]))
-            k['spell'].add(key)
-            k['ops'].setdefault(op, set()).add(typ)
-            k['own'] |= mine
-            k['where'].append(f'{s.name}:{n}')
+def collect_keys(own, others):
+    """(lib, key lower) -> dict(spellings, types per op, used in own scripts, where)."""
+    keys = {}
+    for s in own + others:
+        mine = s in own
+        for n, l in s.lines:
+            for lib, key, typ, op in key_use(s, l):
+                k = keys.setdefault((lib, key.lower()), dict(spell=set(), ops={}, own=False, where=[]))
+                k['spell'].add(key)
+                k['ops'].setdefault(op, set()).add(typ)
+                k['own'] |= mine
+                k['where'].append(f'{s.name}:{n}')
+    return keys
 
 
 def close(a, b):
@@ -311,38 +329,47 @@ def close(a, b):
 # distinct keys that only look like a typo: wares is the World module's trade key, maras this module's gate
 NEAR_MISS_OK = {frozenset(('maras', 'wares'))}
 
-ownkeys = [(lib, k) for (lib, k), v in keys.items() if v['own']]
-for lib, k in ownkeys:
-    v = keys[(lib, k)]
-    reads, writes = v['ops'].get('read', set()), v['ops'].get('write', set())
-    # Has/Unset calls name a type too, and StorageUtil keeps each type apart
-    for op in ('read', 'unset'):
-        for t in v['ops'].get(op, set()):
-            if writes and t not in writes and not (t.endswith('list') and any(w.endswith('list') for w in writes)):
-                err(f'{lib} key {sorted(v["spell"])[0]}: {op} as {t} but written as {"/".join(sorted(writes))} ({", ".join(v["where"][:4])})')
-    if '*' in k:
-        continue
-    if reads and not writes:
-        warn(f'{lib} key {sorted(v["spell"])[0]} is read but never written in Living World sources (set by another mod?)')
-    if writes and not reads:
-        warn(f'{lib} key {sorted(v["spell"])[0]} is written but never read in Living World sources (the Hub reads JSON files as data)')
-    for lib2, k2 in keys:
-        if lib2 == lib and k2 > k and close(k, k2) and frozenset((k, k2)) not in NEAR_MISS_OK and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
-                                                        or bool(writes) != bool(keys[(lib2, k2)]['ops'].get('write'))):
-            err(f'{lib} keys {k} and {k2} differ by a letter or two and one is only read or only written')
+
+def check_keys(keys):
+    """Check 2. Returns the keys this repository's own scripts use."""
+    ownkeys = [(lib, k) for (lib, k), v in keys.items() if v['own']]
+    for lib, k in ownkeys:
+        v = keys[(lib, k)]
+        reads, writes = v['ops'].get('read', set()), v['ops'].get('write', set())
+        # Has/Unset calls name a type too, and StorageUtil keeps each type apart
+        for op in ('read', 'unset'):
+            for t in v['ops'].get(op, set()):
+                if writes and t not in writes and not (t.endswith('list') and any(w.endswith('list') for w in writes)):
+                    err(f'{lib} key {sorted(v["spell"])[0]}: {op} as {t} but written as {"/".join(sorted(writes))} ({", ".join(v["where"][:4])})')
+        if '*' in k:
+            continue
+        if reads and not writes:
+            warn(f'{lib} key {sorted(v["spell"])[0]} is read but never written in Living World sources (set by another mod?)')
+        if writes and not reads:
+            warn(f'{lib} key {sorted(v["spell"])[0]} is written but never read in Living World sources (the Hub reads JSON files as data)')
+        for lib2, k2 in keys:
+            if lib2 == lib and k2 > k and close(k, k2) and frozenset((k, k2)) not in NEAR_MISS_OK and (bool(reads) != bool(keys[(lib2, k2)]['ops'].get('read'))
+                                                            or bool(writes) != bool(keys[(lib2, k2)]['ops'].get('write'))):
+                err(f'{lib} keys {k} and {k2} differ by a letter or two and one is only read or only written')
+    return ownkeys
+
 
 # ---- 3. Completed vs requires_response -------------------------------------------------------------------------------
 
-actions = {}
-for p in sorted(glob.glob(os.path.join(ACTIONS, '*.json'))):
-    try:
-        a = json.load(open(p, encoding='utf-8'))
-    except ValueError as e:
-        err(f'{os.path.basename(p)}: not valid JSON: {e}')
-        continue
-    actions[a['identifier']] = a
-    if a.get('identifier') + '.json' != os.path.basename(p):
-        err(f'{os.path.basename(p)}: identifier {a.get("identifier")} does not match the file name')
+def load_actions(folder):
+    """identifier -> the action file's JSON, for every action file in folder."""
+    actions = {}
+    for p in sorted(glob.glob(os.path.join(folder, '*.json'))):
+        try:
+            with open(p, encoding='utf-8') as f:
+                a = json.load(f)
+        except ValueError as e:
+            err(f'{os.path.basename(p)}: not valid JSON: {e}')
+            continue
+        actions[a['identifier']] = a
+        if a.get('identifier') + '.json' != os.path.basename(p):
+            err(f'{os.path.basename(p)}: identifier {a.get("identifier")} does not match the file name')
+    return actions
 
 
 def calls_completed(s, fname, ident, seen=None):
@@ -367,106 +394,123 @@ def calls_completed(s, fname, ident, seen=None):
     return False
 
 
-handlers = {}  # action id -> [(script, handler, advanced)]
-for (sname, h), events in registered.items():
-    for e in events:
-        for pre in PREFIX_SIGS:
-            if e.startswith(pre):
-                handlers.setdefault(e[len(pre):], []).append((sname, h, pre.startswith('MantellaConversation_Adv')))
-byname = {s.name: s for s in own}
-for ident, a in actions.items():
-    hs = handlers.get(ident, [])
-    if not hs:
-        err(f'{ident}: no handler registered')
-        continue
-    for sname, h, adv in hs:
-        s = byname[sname]
-        done = calls_completed(s, h, ident)
-        if not a.get('requires_response') and done:
-            err(f'{ident}: requires_response is false but {sname}.{h} sends Completed (a stray one ends the next action\'s wait)')
-        if a.get('requires_response') and not done:
-            err(f'{ident}: requires_response is true but {sname}.{h} never sends Completed (Mantella waits 5 s)')
-    if a.get('parameters') and not any(adv for _, _, adv in hs):
-        err(f'{ident}: has parameters but no advanced handler')
-for ident in handlers:
-    if ident not in actions:
-        warn(f'handler registered for action {ident}, which has no action file in this repo')
+def action_handlers(registered):
+    """action id -> [(script, handler, advanced)] from the registered Mantella action events."""
+    handlers = {}
+    for (sname, h), events in registered.items():
+        for e in events:
+            for pre in PREFIX_SIGS:
+                if e.startswith(pre):
+                    handlers.setdefault(e[len(pre):], []).append((sname, h, pre.startswith('MantellaConversation_Adv')))
+    return handlers
+
+
+def check_completed(actions, handlers, byname):
+    for ident, a in actions.items():
+        hs = handlers.get(ident, [])
+        if not hs:
+            err(f'{ident}: no handler registered')
+            continue
+        for sname, h, adv in hs:
+            s = byname[sname]
+            done = calls_completed(s, h, ident)
+            if not a.get('requires_response') and done:
+                err(f'{ident}: requires_response is false but {sname}.{h} sends Completed (a stray one ends the next action\'s wait)')
+            if a.get('requires_response') and not done:
+                err(f'{ident}: requires_response is true but {sname}.{h} never sends Completed (Mantella waits 5 s)')
+        if a.get('parameters') and not any(adv for _, _, adv in hs):
+            err(f'{ident}: has parameters but no advanced handler')
+    for ident in handlers:
+        if ident not in actions:
+            warn(f'handler registered for action {ident}, which has no action file in this repo')
+
 
 # ---- 4. M.A.R.A.S 2.x-only natives -----------------------------------------------------------------------------------
 
-old = {}
-for s in load([MARAS011]):
-    for f in s.funcs.values():
-        old[(s.name.lower(), f['name'].lower())] = len(f['types'])
-new = load([os.path.join(ROOT, 'build', 'stubs', 'maras2x')])
-only2x, changed = set(), set()
-for s in new:
-    for f in s.funcs.values():
-        k = (s.name.lower(), f['name'].lower())
-        if k not in old:
-            only2x.add(k)
-        elif old[k] != len(f['types']):
-            changed.add(k)
-if not old:
-    warn('M.A.R.A.S 0.11.1 sources not found: 2.x-only list is every function in build/stubs/maras2x')
-    only2x = {(s.name.lower(), f['name'].lower()) for s in new for f in s.funcs.values()}
-for s in own:
-    if s.path.startswith(os.path.join(ROOT, 'test')):
-        continue
-    for n, l in s.lines:
-        for m in re.finditer(r'\b(\w+)\.(\w+)\(', l):
-            k = (m.group(1).lower(), m.group(2).lower())
-            if k in only2x and s.name != 'MRB_MarasCalls2x':
-                err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} exists only in M.A.R.A.S 2.x; call it through MRB_MarasCalls2x')
-            if k in changed and s.name not in ('MRB_MarasCalls2x', 'MRB_MarasCalls011'):
-                err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} changed in M.A.R.A.S 2.x; call it through the adapters')
-            if k in changed and s.name == 'MRB_MarasCalls011' and len(args_of(l, m.end() - 1)) != old[k]:
-                err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} needs {old[k]} arguments on 0.11.1')
-# the main build compiles against the stub: it must declare every function the real 2.x adapter has
-real = {f['name'].lower(): f['types'] for s in load([os.path.join(ROOT, 'Source', 'Scripts2x')]) for f in s.funcs.values()}
-stub = {f['name'].lower(): f['types'] for s in load([os.path.join(ROOT, 'build', 'stubs')]) if s.name == 'MRB_MarasCalls2x'
-        for f in s.funcs.values()}
-for name, types in real.items():
-    if stub.get(name) != types:
-        err(f'build/stubs/MRB_MarasCalls2x.psc: {name} missing or declared differently from Source/Scripts2x')
-for name in stub:
-    if name not in real:
-        err(f'build/stubs/MRB_MarasCalls2x.psc: {name} is not in Source/Scripts2x (the main build would call nothing)')
+def check_maras_versions(own):
+    """Check 4. Returns (2.x-only functions, functions whose argument count changed) as (script, function) pairs."""
+    old = {}
+    for s in load([MARAS011]):
+        for f in s.funcs.values():
+            old[(s.name.lower(), f['name'].lower())] = len(f['types'])
+    new = load([os.path.join(ROOT, 'build', 'stubs', 'maras2x')])
+    only2x, changed = set(), set()
+    for s in new:
+        for f in s.funcs.values():
+            k = (s.name.lower(), f['name'].lower())
+            if k not in old:
+                only2x.add(k)
+            elif old[k] != len(f['types']):
+                changed.add(k)
+    if not old:
+        warn('M.A.R.A.S 0.11.1 sources not found: 2.x-only list is every function in build/stubs/maras2x')
+        only2x = {(s.name.lower(), f['name'].lower()) for s in new for f in s.funcs.values()}
+    for s in own:
+        if s.path.startswith(os.path.join(ROOT, 'test')):
+            continue
+        for n, l in s.lines:
+            for m in re.finditer(r'\b(\w+)\.(\w+)\(', l):
+                k = (m.group(1).lower(), m.group(2).lower())
+                if k in only2x and s.name != 'MRB_MarasCalls2x':
+                    err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} exists only in M.A.R.A.S 2.x; call it through MRB_MarasCalls2x')
+                if k in changed and s.name not in ('MRB_MarasCalls2x', 'MRB_MarasCalls011'):
+                    err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} changed in M.A.R.A.S 2.x; call it through the adapters')
+                if k in changed and s.name == 'MRB_MarasCalls011' and len(args_of(l, m.end() - 1)) != old[k]:
+                    err(f'{s.name}.psc:{n}: {m.group(1)}.{m.group(2)} needs {old[k]} arguments on 0.11.1')
+    check_adapter_stub()
+    return only2x, changed
+
+
+def check_adapter_stub():
+    """The main build compiles against the stub: it must declare every function the real 2.x adapter has."""
+    real = {f['name'].lower(): f['types'] for s in load([os.path.join(ROOT, 'Source', 'Scripts2x')]) for f in s.funcs.values()}
+    stub = {f['name'].lower(): f['types'] for s in load([os.path.join(ROOT, 'build', 'stubs')]) if s.name == 'MRB_MarasCalls2x'
+            for f in s.funcs.values()}
+    for name, types in real.items():
+        if stub.get(name) != types:
+            err(f'build/stubs/MRB_MarasCalls2x.psc: {name} missing or declared differently from Source/Scripts2x')
+    for name in stub:
+        if name not in real:
+            err(f'build/stubs/MRB_MarasCalls2x.psc: {name} is not in Source/Scripts2x (the main build would call nothing)')
+
 
 # ---- 5. action parameters ---------------------------------------------------------------------------------------------
 
-for ident, a in actions.items():
-    params = set((a.get('parameters') or {}).keys())
-    for r in a.get('required', []):
-        if r not in params:
-            err(f'{ident}: required {r} is not a parameter')
-    for sname, h, adv in handlers.get(ident, []):
-        if not adv or h not in byname[sname].funcs:
-            continue  # a missing handler is reported in check 1
-        f = byname[sname].funcs[h]
-        argname = f['names'][-1] if f['types'] and f['types'][-1] == 'int' else 'aiArguments'
-        read = set()
-        for n, l in f['body']:
-            for c in re.finditer(r'SKSE_HTTP\.get\w+\(\s*' + argname + r'\s*,\s*"([^"]+)"', l):
-                read.add(c.group(1))
-        for p in params - read:
-            err(f'{ident}: parameter {p} is never read by {sname}.{h}')
-        for p in read - params:
-            err(f'{ident}: {sname}.{h} reads {p}, which the action file does not declare')
+def check_action_parameters(actions, handlers, byname):
+    for ident, a in actions.items():
+        params = set((a.get('parameters') or {}).keys())
+        for r in a.get('required', []):
+            if r not in params:
+                err(f'{ident}: required {r} is not a parameter')
+        for sname, h, adv in handlers.get(ident, []):
+            if not adv or h not in byname[sname].funcs:
+                continue  # a missing handler is reported in check 1
+            f = byname[sname].funcs[h]
+            argname = f['names'][-1] if f['types'] and f['types'][-1] == 'int' else 'aiArguments'
+            read = set()
+            for n, l in f['body']:
+                for c in re.finditer(r'SKSE_HTTP\.get\w+\(\s*' + argname + r'\s*,\s*"([^"]+)"', l):
+                    read.add(c.group(1))
+            for p in params - read:
+                err(f'{ident}: parameter {p} is never read by {sname}.{h}')
+            for p in read - params:
+                err(f'{ident}: {sname}.{h} reads {p}, which the action file does not declare')
+
 
 # ---- 6. request_results.json stays bounded ---------------------------------------------------------------------------
 # request_results.json was only ever appended to, and RequestDone reads it whole once per request row. RecordResult keeps
 # the newest MAX_RESULTS (the Hub keeps its newest 50 requests, so every request it still lists keeps its result).
 
-maras_src = open(os.path.join(ROOT, 'Source', 'Scripts', 'MRB_MARAS.psc'), encoding='utf-8').read()
-record = re.search(r'^Function RecordResult\(.*?^EndFunction', maras_src, re.M | re.S)
-record = record.group(0) if record else ''
-cap = re.search(r'int Property MAX_RESULTS = (\d+) AutoReadOnly', maras_src)
-hub_contracts = os.path.join(CODING, 'Mantella-Living-World-Hub', 'server', 'living_world', 'contracts.py')
-hub_cap = re.search(r'^MAX_REQUESTS = (\d+)', open(hub_contracts, encoding='utf-8').read(), re.M) if os.path.isfile(hub_contracts) else None
-if not cap or not record:
-    err('MRB_MARAS.psc: MAX_RESULTS or RecordResult not found')
-else:
+def check_results_cap():
+    maras_src = read_text(os.path.join(ROOT, 'Source', 'Scripts', 'MRB_MARAS.psc'))
+    record = re.search(r'^Function RecordResult\(.*?^EndFunction', maras_src, re.M | re.S)
+    record = record.group(0) if record else ''
+    cap = re.search(r'int Property MAX_RESULTS = (\d+) AutoReadOnly', maras_src)
+    hub_contracts = os.path.join(CODING, 'Mantella-Living-World-Hub', 'server', 'living_world', 'contracts.py')
+    hub_cap = re.search(r'^MAX_REQUESTS = (\d+)', read_text(hub_contracts), re.M) if os.path.isfile(hub_contracts) else None
+    if not cap or not record:
+        err('MRB_MARAS.psc: MAX_RESULTS or RecordResult not found')
+        return
     if 'If n < MAX_RESULTS' not in record or 'int i = n - MAX_RESULTS + 1' not in record \
             or 'JsonUtil.SetRawPathValue(RESULTS_FILE, ".results", kept + row + "]")' not in record:
         err('MRB_MARAS.RecordResult: request_results.json is not trimmed to the newest MAX_RESULTS')
@@ -476,70 +520,110 @@ else:
     if hub_cap and int(hub_cap.group(1)) > int(cap.group(1)):
         err(f"MRB_MARAS.MAX_RESULTS {cap.group(1)} is below the Hub's MAX_REQUESTS {hub_cap.group(1)}: a listed request could lose its result")
 
+
 # ---- 7. every word a family tie is named by is known to IsCloseKind -------------------------------------------------
 # SpouseWord names the spouse "husband" or "wife", but IsCloseKind only knew "spouse": a widow was never told she grieves.
 
-family = next((s for s in own if s.name == 'MRB_Family'), None)
-if family and 'spouseword' in family.funcs and 'isclosekind' in family.funcs:
+def check_family_words(own):
+    family = next((s for s in own if s.name == 'MRB_Family'), None)
+    if not (family and 'spouseword' in family.funcs and 'isclosekind' in family.funcs):
+        err('MRB_Family.psc: SpouseWord or IsCloseKind not found')
+        return
     close_words = {w for _, l in family.funcs['isclosekind']['body'] for w in re.findall(r'asKind\s*==\s*"([^"]+)"', l)}
     for n, l in family.funcs['spouseword']['body']:
         for word in re.findall(r'Return\s+"([^"]+)"', l):
             if word not in close_words:
                 err(f'MRB_Family.psc:{n}: SpouseWord returns "{word}", which IsCloseKind does not treat as close family')
-else:
-    err('MRB_Family.psc: SpouseWord or IsCloseKind not found')
+
 
 # ---- 8. words a handler acts on only by exact match come from the action file's enum ---------------------------------
 # ChangeAffection and ResolveMarriageCrisis took free text: "slightly warmer" or "reconciled" silently did nothing.
 
-maras = next((s for s in own if s.name == 'MRB_MARAS'), None)
-for ident, param, fname, var in (('mantella_maras_affection', 'change', 'changeaffection', 'asChange'),
-                                 ('mantella_maras_affection', 'amount', 'changeaffection', 'asAmount'),
-                                 ('mantella_maras_resolve_crisis', 'decision', 'resolvecrisis', 'decision')):
-    spec = ((actions.get(ident) or {}).get('parameters') or {}).get(param) or {}
-    words = {w for _, l in (maras.funcs.get(fname, {}).get('body', []) if maras else [])
-             for w in re.findall(var + r'\s*[!=]=\s*"([^"]+)"', l)}
-    if not words:
-        err(f'{ident}.{param}: MRB_MARAS.{fname} compares no words (check needs updating)')
-    elif not isinstance(spec.get('enum'), list):
-        err(f'{ident}.{param}: no enum, but MRB_MARAS acts only on {sorted(words)}')
-    elif not words <= set(spec['enum']):
-        err(f'{ident}.{param}: enum {spec["enum"]} lacks {sorted(words - set(spec["enum"]))}, which MRB_MARAS acts on')
+# (action, parameter, MRB_MARAS function lower, the variable it compares)
+EXACT_WORD_PARAMS = (('mantella_maras_affection', 'change', 'changeaffection', 'asChange'),
+                     ('mantella_maras_affection', 'amount', 'changeaffection', 'asAmount'),
+                     ('mantella_maras_resolve_crisis', 'decision', 'resolvecrisis', 'decision'))
+
+
+def check_action_enums(own, actions):
+    maras = next((s for s in own if s.name == 'MRB_MARAS'), None)
+    for ident, param, fname, var in EXACT_WORD_PARAMS:
+        spec = ((actions.get(ident) or {}).get('parameters') or {}).get(param) or {}
+        words = {w for _, l in (maras.funcs.get(fname, {}).get('body', []) if maras else [])
+                 for w in re.findall(var + r'\s*[!=]=\s*"([^"]+)"', l)}
+        if not words:
+            err(f'{ident}.{param}: MRB_MARAS.{fname} compares no words (check needs updating)')
+        elif not isinstance(spec.get('enum'), list):
+            err(f'{ident}.{param}: no enum, but MRB_MARAS acts only on {sorted(words)}')
+        elif not words <= set(spec['enum']):
+            err(f'{ident}.{param}: enum {spec["enum"]} lacks {sorted(words - set(spec["enum"]))}, which MRB_MARAS acts on')
+
 
 # ---- 9. no lock or retry loop waits under 0.1 s (a shorter wait is one frame at best, and 40 tries end far too soon) ---
 
-for s in own:
-    for n, l in s.lines:
-        m = re.search(r'Utility\.Wait(?:MenuMode)?\(\s*(\d*\.?\d+)\s*\)', l)
-        if m and float(m.group(1)) < 0.1:
-            err(f'{s.name}.psc:{n}: waits {m.group(1)} s; Papyrus waits under 0.1 s are not reliable')
+def check_short_waits(own):
+    for s in own:
+        for n, l in s.lines:
+            m = re.search(r'Utility\.Wait(?:MenuMode)?\(\s*(\d*\.?\d+)\s*\)', l)
+            if m and float(m.group(1)) < 0.1:
+                err(f'{s.name}.psc:{n}: waits {m.group(1)} s; Papyrus waits under 0.1 s are not reliable')
+
 
 # ---- 10. a scene thread with a child gets no after-scene line or talk ------------------------------------------------
 # OnLedgerThreadData built "just finished having sex" for every partner: it must return on a child before the scene
 # counts (sceneToken), the running-talk line or StartTalk.
 
-ledger = next((s for s in own if s.name == 'MRB_Ledger'), None)
-body = ledger.funcs.get('onledgerthreaddata', {}).get('body', []) if ledger else []
-minor = next((i for i, (_, l) in enumerate(body) if re.search(r'\bIf\s+IsMinor\(actors\[i\]\)', l)), None)
-after = [i for i, (_, l) in enumerate(body) if re.search(r'sceneToken\s*\+=|AddMantellaEvent\(|StartTalk\(', l)]
-if minor is None:
-    err('MRB_Ledger.OnLedgerThreadData: no IsMinor(actors[i]) test on the scene\'s actors')
-elif not any(re.match(r'\s*Return\b', l) for _, l in body[minor + 1:minor + 4]):
-    err('MRB_Ledger.OnLedgerThreadData: the IsMinor(actors[i]) test does not return')
-elif not after or min(after) < minor:
-    err('MRB_Ledger.OnLedgerThreadData: the child test must come before sceneToken, AddMantellaEvent and StartTalk')
+def check_child_scene_line(own):
+    ledger = next((s for s in own if s.name == 'MRB_Ledger'), None)
+    body = ledger.funcs.get('onledgerthreaddata', {}).get('body', []) if ledger else []
+    minor = next((i for i, (_, l) in enumerate(body) if re.search(r'\bIf\s+IsMinor\(actors\[i\]\)', l)), None)
+    after = [i for i, (_, l) in enumerate(body) if re.search(r'sceneToken\s*\+=|AddMantellaEvent\(|StartTalk\(', l)]
+    if minor is None:
+        err('MRB_Ledger.OnLedgerThreadData: no IsMinor(actors[i]) test on the scene\'s actors')
+    elif not any(re.match(r'\s*Return\b', l) for _, l in body[minor + 1:minor + 4]):
+        err('MRB_Ledger.OnLedgerThreadData: the IsMinor(actors[i]) test does not return')
+    elif not after or min(after) < minor:
+        err('MRB_Ledger.OnLedgerThreadData: the child test must come before sceneToken, AddMantellaEvent and StartTalk')
+
 
 # ---------------------------------------------------------------------------------------------------------------------
 
-verbose = '-v' in sys.argv
-print(f'scripts: {len(own)} own, {len(others)} other Living World, {len(external)} Mantella / M.A.R.A.S / Ledger')
-print(f'mod events registered: {sum(len(v) for v in registered.values())}; actions: {len(actions)}; '
-      f'keys used here: {len(ownkeys)}; M.A.R.A.S 2.x-only: {len(only2x)}, changed: {len(changed)}')
-for w in warnings if verbose else []:
-    print('  warn:', w)
-if not verbose and warnings:
-    print(f'  {len(warnings)} warnings (-v to list)')
-for e in errors:
-    print('  ERROR:', e)
-print('RESULT:', 'pass' if not errors else f'{len(errors)} errors')
-sys.exit(1 if errors else 0)
+def report(summary, verbose):
+    """Prints the summary lines, the warnings (or their count) and the errors, then the result."""
+    for line in summary:
+        print(line)
+    for w in warnings if verbose else []:
+        print('  warn:', w)
+    if not verbose and warnings:
+        print(f'  {len(warnings)} warnings (-v to list)')
+    for e in errors:
+        print('  ERROR:', e)
+    print('RESULT:', 'pass' if not errors else f'{len(errors)} errors')
+
+
+def main():
+    own, others, external = load(OWN), load(SIBLINGS), load(EXTERNAL)
+    fill_global_props(own + others + external)
+    if not external:
+        warn('Mantella / M.A.R.A.S / Lover\'s Ledger sources not found: sender and 0.11.1 checks are partial')
+    registered = check_mod_events(own, find_senders(own + others + external, external))
+    ownkeys = check_keys(collect_keys(own, others))
+    actions = load_actions(ACTIONS)
+    handlers = action_handlers(registered)
+    byname = {s.name: s for s in own}
+    check_completed(actions, handlers, byname)
+    only2x, changed = check_maras_versions(own)
+    check_action_parameters(actions, handlers, byname)
+    check_results_cap()
+    check_family_words(own)
+    check_action_enums(own, actions)
+    check_short_waits(own)
+    check_child_scene_line(own)
+    report([f'scripts: {len(own)} own, {len(others)} other Living World, {len(external)} Mantella / M.A.R.A.S / Ledger',
+            f'mod events registered: {sum(len(v) for v in registered.values())}; actions: {len(actions)}; '
+            f'keys used here: {len(ownkeys)}; M.A.R.A.S 2.x-only: {len(only2x)}, changed: {len(changed)}'], '-v' in sys.argv)
+    return 1 if errors else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

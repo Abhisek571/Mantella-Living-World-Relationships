@@ -25,7 +25,7 @@ What is checked (exit 1 when any check fails):
     only while the score is still the one the cheat set
   - action target: a child or an NPC with a M.A.R.A.S status is never swapped for another member
 """
-import argparse, copy, random, struct, sys
+import argparse, copy, math, random, struct, sys
 
 sys.dont_write_bytecode = True
 
@@ -48,12 +48,10 @@ def as_int(x):
 
 
 def ceiling(x):  # Math.Ceiling returns int
-    import math
     return math.ceil(x)
 
 
 def floor(x):  # Math.Floor returns int
-    import math
     return math.floor(x)
 
 
@@ -812,27 +810,14 @@ def check_target(fails):
 
 # --------------------------------------------------------------------------------------------------------------------
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--runs', type=int, default=5000)
-    ap.add_argument('--seed', type=int, default=1)
-    ap.add_argument('--quick', action='store_true')
-    a = ap.parse_args()
-    ok = True
-
-    fails = Failures()
-    rng = random.Random(a.seed)
-    for _ in range(a.runs):
+def check_random_runs(fails, runs, rng):
+    for _ in range(runs):
         random_run(rng, fails)
-    print(f'random sequences: {a.runs} runs x 60 steps')
-    if fails.ok():
-        print('  all checks hold')
-    else:
-        fails.report()
-        ok = False
+    return f'random sequences: {runs} runs x 60 steps'
 
-    # every weight 0.01 step from -10 to 10, every rating, against the design
-    rf = Failures()
+
+def check_rounding_sweep(fails):
+    """Every weight 0.01 step from -10 to 10, every rating, against the design."""
     for i in range(-1000, 1001):
         wgt = i / 100
         for r in (-1, 0, 1, 2, 3, 4):
@@ -843,16 +828,12 @@ def main():
             got = [e[5] for e in log if e[0] == 'rounded']
             want = [design_event_delta(wgt, r)] if f32(wgt) != 0.0 else []
             if got != want:
-                rf.add('event rounding sweep', dict(weight=wgt, rating=r, got=got, want=want))
-    print('rounding sweep: weights -10..10 step 0.01 x ratings -1..4')
-    if rf.ok():
-        print('  matches the design')
-    else:
-        rf.report()
-        ok = False
+                fails.add('event rounding sweep', dict(weight=wgt, rating=r, got=got, want=want))
+    return 'rounding sweep: weights -10..10 step 0.01 x ratings -1..4'
 
-    # scores M.A.R.A.S might leave outside 0..100: a change never goes against its sign or past today's limit
-    of = Failures()
+
+def check_out_of_range(fails):
+    """Scores M.A.R.A.S might leave outside 0..100: a change never goes against its sign or past today's limit."""
     for start in range(-10, 131):
         for c in ('warmer', 'colder'):
             for amt in ('a little', 'a lot'):
@@ -861,26 +842,25 @@ def main():
                     w.put('N', KEY_AFFECTION_DAY, as_int(w.time))
                     w.put('N', KEY_AFFECTION_USED, used)
                     log = []
-                    r = run_to_end(change_affection(w, 'N', c, amt, log))
+                    run_to_end(change_affection(w, 'N', c, amt, log))
                     moved = w.score['N'] - start
                     sign = 1 if c == 'warmer' else -1
                     if moved * sign < 0:
-                        of.add('moved against the request', (start, c, amt, used, w.score['N']))
+                        fails.add('moved against the request', (start, c, amt, used, w.score['N']))
                     if abs(w.get('N', KEY_AFFECTION_USED)) > 5:
-                        of.add('daily total past 5', (start, c, amt, used, w.get('N', KEY_AFFECTION_USED)))
+                        fails.add('daily total past 5', (start, c, amt, used, w.get('N', KEY_AFFECTION_USED)))
                     if 0 <= start <= 100 and not 0 <= w.score['N'] <= 100:
-                        of.add('left 0..100', (start, c, amt, w.score['N']))
-    print('scores -10..130 x every request x every used total -5..5')
-    if of.ok():
-        print('  never against the request, total within 5')
-    else:
-        of.report()
-        ok = False
+                        fails.add('left 0..100', (start, c, amt, w.score['N']))
+    return 'scores -10..130 x every request x every used total -5..5'
 
-    # OddsLine (L287-311): MARAS's own proposal rule (TTM_ServiceMarriageQuest: polygamy quest completed or toggle 1)
-    od = Failures()
-    BANDS = [(0.9, 'would accept at once'), (0.7, 'would be eager to accept'), (0.5, 'would probably accept if asked kindly'),
-             (0.3, 'is unsure'), (0.15, 'would likely refuse'), (-1, 'would almost certainly refuse')]
+
+# OddsLine's chance bands, highest first (L287-311)
+ODDS_BANDS = [(0.9, 'would accept at once'), (0.7, 'would be eager to accept'), (0.5, 'would probably accept if asked kindly'),
+              (0.3, 'is unsure'), (0.15, 'would likely refuse'), (-1, 'would almost certainly refuse')]
+
+
+def check_odds_lines(fails):
+    """OddsLine (L287-311): MARAS's own proposal rule (TTM_ServiceMarriageQuest: polygamy quest completed or toggle 1)."""
     for committed in (0, 1, 2):
         for toggle in (None, 0.0, 1.0, 2.0):
             for done in (None, False, True):
@@ -890,24 +870,23 @@ def main():
                     may = committed == 0 or toggle == 1.0 or done is True
                     if not may:
                         if 'puzzled' not in line:
-                            od.add('committed player not puzzled', (committed, toggle, done))
+                            fails.add('committed player not puzzled', (committed, toggle, done))
                         continue
-                    want = next(t for lo, t in BANDS if chance >= f32(lo))
+                    want = next(t for lo, t in ODDS_BANDS if chance >= f32(lo))
                     if want not in line:
-                        od.add('odds band', (chance, line))
+                        fails.add('odds band', (chance, line))
                     if (chance < f32(0.9)) != ('hesitation' in line):
-                        od.add('refusal hint', (chance, line))
+                        fails.add('refusal hint', (chance, line))
     if odds_line(False, 0, None, None, f32(0.95)) != '':
-        od.add('odds for an NPC who may not accept', '')
-    print('odds line: chance 0..1 step 0.001 x commitments x polygamy states')
-    if od.ok():
-        print('  bands, puzzled rule and refusal hint match')
-    else:
-        od.report()
-        ok = False
+        fails.add('odds for an NPC who may not accept', '')
+    return 'odds line: chance 0..1 step 0.001 x commitments x polygamy states'
 
+
+def check_interleavings(quick):
+    """Prints every interleaving scenario; False when one that must hold has a bad schedule."""
+    ok = True
     print('interleavings (every schedule at every suspension point):')
-    for name, make, check, must_hold in scenarios(a.quick):
+    for name, make, check, must_hold in scenarios(quick):
         finished, states, bad = explore(make, check)
         status = 'no lost update' if not bad else f'{len(bad)} bad schedules' + ('' if must_hold else ' (expected)')
         print(f'  {name}: {finished} schedules, {states} states: {status}')
@@ -916,28 +895,43 @@ def main():
             print(f'    first: {msg}; schedule length {len(sched)}')
         if bad and must_hold:
             ok = False
+    return ok
 
-    af = Failures()
-    n = check_anniversary(af)
-    print(f'wedding fact: {n} wedding days')
-    if af.ok():
-        print('  date kept, no countdown, wedding day last')
-    else:
-        af.report()
-        ok = False
 
+def run_check(check, good):
+    """Runs check(fails) -> heading, prints the heading and the good line or the failures. True when nothing failed."""
+    fails = Failures()
+    print(check(fails))
+    if fails.ok():
+        print('  ' + good)
+        return True
+    fails.report()
+    return False
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--runs', type=int, default=5000)
+    ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--quick', action='store_true')
+    args = ap.parse_args()
+    seed = args.seed
+    rng = random.Random(seed)
+
+    results = [
+        run_check(lambda f: check_random_runs(f, args.runs, rng), 'all checks hold'),
+        run_check(check_rounding_sweep, 'matches the design'),
+        run_check(check_out_of_range, 'never against the request, total within 5'),
+        run_check(check_odds_lines, 'bands, puzzled rule and refusal hint match'),
+        check_interleavings(args.quick),
+        run_check(lambda f: f'wedding fact: {check_anniversary(f)} wedding days', 'date kept, no countdown, wedding day last'),
+    ]
     for label, fn, good in (('proposals', check_proposals, 'one roll a day, box after a yes, week-long breakup cooldown'),
                             ('cheats', check_cheats, 'floor 25 for spouses, nothing in a crisis, reset only if unchanged'),
                             ('action target', lambda f, r: check_target(f), 'children and tracked NPCs never swapped')):
-        pf = Failures()
-        n = fn(pf, random.Random(a.seed))
-        print(f'{label}: {n} cases')
-        if pf.ok():
-            print('  ' + good)
-        else:
-            pf.report()
-            ok = False
+        results.append(run_check(lambda f, fn=fn, label=label: f'{label}: {fn(f, random.Random(seed))} cases', good))
 
+    ok = all(results)
     print('RESULT:', 'pass' if ok else 'FAIL')
     sys.exit(0 if ok else 1)
 
